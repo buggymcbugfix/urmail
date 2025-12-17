@@ -25,4 +25,5 @@ val send : string           (* Server, in CURL URL form *)
            -> headers
            -> string        (* Plain text message body *)
            -> option xbody  (* Optional HTML message body *)
+			  -> int           (* Email ID in the database *)
            -> transaction unit
