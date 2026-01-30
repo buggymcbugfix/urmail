@@ -540,7 +540,7 @@ static void commit(void *data) {
 											"--%s\r\n"
 											"Content-Type: text/html; charset=utf-8\r\n"
 											"\r\n"
-											"%s\r\n"
+											"<!DOCTYPE html><html>%s</html>\r\n"
 											"--%s--",
 											separator, separator, j->body, separator, j->xbody, separator);
 
