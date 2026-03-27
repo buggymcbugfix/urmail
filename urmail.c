@@ -3,12 +3,105 @@
 #include <string.h>
 #include <stdlib.h>
 #include <curl/curl.h>
+#include <pthread.h>
 
 #include <urweb/urweb.h>
 
 #define STR(x) #x
 #define TOSTR(x) STR(x)
 #define _LOC_ __FILE__ ":" TOSTR(__LINE__)
+
+// BEGIN DEBUG
+/* cache result */
+static int ww_log_debug(void) {
+	static int initialized = 0;
+	static int enabled = 0;
+
+	if (!initialized) {
+		const char *v = getenv("WW_LOG_DEBUG");
+
+		if (v && *v != '\0' && strcmp(v, "0") != 0)
+			enabled = 1;
+
+		initialized = 1;
+	}
+
+	return enabled;
+}
+
+#define DBG(fmt, ...) \
+	do { \
+		if (ww_log_debug()) \
+			fprintf(stderr, "DEBUG [urmail]: " fmt, ##__VA_ARGS__); \
+	} while (0)
+// END DEBUG
+
+typedef struct smtp_conn {
+	char *server;
+	char *user;
+	char *password;
+	char *ca;
+	int ssl;
+	CURL *curl;
+	struct smtp_conn *next;
+} smtp_conn;
+
+static smtp_conn *conn_head = NULL;
+static pthread_mutex_t conn_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* helper: compare connection identity */
+static int conn_matches(smtp_conn *c,
+					   const char *server,
+					   const char *user,
+					   const char *password,
+					   const char *ca,
+					   int ssl) {
+	return strcmp(c->server, server) == 0 &&
+		   strcmp(c->user, user) == 0 &&
+		   strcmp(c->password, password) == 0 &&
+		   ((c->ca == NULL && ca == NULL) ||
+			(c->ca && ca && strcmp(c->ca, ca) == 0)) &&
+		   c->ssl == ssl;
+}
+
+/* get or create connection */
+static smtp_conn *get_connection(const char *server,
+								 const char *user,
+								 const char *password,
+								 const char *ca,
+								 int ssl) {
+	smtp_conn *cur = conn_head;
+
+	while (cur) {
+		if (conn_matches(cur, server, user, password, ca, ssl)) {
+			DBG("reusing existing SMTP connection for %s\n", user);
+			return cur;
+		}
+		cur = cur->next;
+	}
+
+	/* create new */
+	smtp_conn *c = malloc(sizeof(smtp_conn));
+	c->server = strdup(server);
+	c->user = strdup(user);
+	c->password = strdup(password);
+	c->ca = ca ? strdup(ca) : NULL;
+	c->ssl = ssl;
+	c->curl = curl_easy_init();
+	c->next = conn_head;
+	conn_head = c;
+
+	DBG("created new SMTP connection for %s\n", user);
+	return c;
+}
+
+/* destroy + recreate curl handle (for retry) */
+static void reset_connection_handle(smtp_conn *c) {
+	if (c->curl)
+		curl_easy_cleanup(c->curl);
+	c->curl = curl_easy_init();
+}
+
 
 struct headers {
 	uw_Basis_string from, to, cc, bcc, subject, user_agent;
@@ -442,8 +535,6 @@ static void commit(void *data) {
 
 	char *buf, *cur;
 	size_t buflen = 50;
-	CURL *curl;
-	CURLcode res;
 	upload_status upload_ctx;
 	struct curl_slist *recipients = NULL;
 
@@ -586,39 +677,65 @@ static void commit(void *data) {
 		} while ((addr = strtok_r(NULL, ",", &saveptr)));
 	}
 
-	curl = curl_easy_init();
-	if (!curl) {
-		curl_slist_free_all(recipients);
-		free(buf);
-		urmail_err(sqlite, j, "urmail: Can't create curl object");
-		return;
-	}
+	pthread_mutex_lock(&conn_mutex);
 
-	curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
-	curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
-	curl_easy_setopt(curl, CURLOPT_URL, j->server);
+	smtp_conn *conn = get_connection(j->server, j->user, j->password, j->ca, j->ssl);
+	CURL *curl = conn->curl;
 
-	if (j->ssl) {
-		curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
-		if (j->ca) {
-			curl_easy_setopt(curl, CURLOPT_CAINFO, j->ca);
-		} else {
-			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+	int max_retries = 3;
+	CURLcode res = CURLE_OK;
+
+	for (int attempt = 0; attempt < max_retries; ++attempt) {
+
+		DBG("send attempt #%d\n", attempt);
+		curl_easy_reset(curl);
+
+		curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
+		curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
+		curl_easy_setopt(curl, CURLOPT_URL, j->server);
+
+		if (j->ssl) {
+			curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
+			if (j->ca) {
+				curl_easy_setopt(curl, CURLOPT_CAINFO, j->ca);
+			} else {
+				curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+				curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+			}
 		}
+
+		curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(j->h->from));
+		curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+		curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
+		curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
+		curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+		//curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+		res = curl_easy_perform(curl);
+
+		if (res == CURLE_OK) {
+			DBG("send succeeded\n");
+			break;
+		}
+
+		/* retry only on connection-type errors */
+		if (res == CURLE_SEND_ERROR ||
+			res == CURLE_RECV_ERROR ||
+			res == CURLE_COULDNT_CONNECT ||
+			res == CURLE_OPERATION_TIMEDOUT) {
+			DBG("send failed with code %d\n", res);
+
+			reset_connection_handle(conn);
+			curl = conn->curl;
+			continue;
+		}
+
+		break;
 	}
 
-	curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(j->h->from));
-	curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
-	curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
-	curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
-	curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-	//curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-
-	res = curl_easy_perform(curl);
+	pthread_mutex_unlock(&conn_mutex);
 
 	curl_slist_free_all(recipients);
-	curl_easy_cleanup(curl);
 	free(buf);
 
 	if (res != CURLE_OK) {
