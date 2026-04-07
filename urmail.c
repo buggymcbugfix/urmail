@@ -456,6 +456,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 		}
 		// If this is *not* already an internal email ...
 		if (strcmp(j->h->to, debug_email_recipient_address)) {
+			DBG("enqueue ERR_email_permanently_failed");
 			// ... enqueue alert email to notify about permanently failed email
 
 			char email_template[64];
@@ -480,6 +481,8 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 			if (sqlite3_step(stmt) != SQLITE_DONE) {
 				fprintf(stderr, "SQLite error executing INSERT: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			}
+		} else {
+			DBG("skipping ERR_email_permanently_failed");
 		}
 	}
 	cleanup:
@@ -718,7 +721,7 @@ static void commit(void *data) {
 			res == CURLE_RECV_ERROR ||
 			res == CURLE_COULDNT_CONNECT ||
 			res == CURLE_OPERATION_TIMEDOUT) {
-			DBG("send failed with code %d\n", res);
+			DBG("send failed: %s\n", curl_easy_strerror(res));
 
 			reset_connection_handle(conn);
 			curl = conn->curl;
