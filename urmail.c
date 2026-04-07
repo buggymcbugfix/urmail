@@ -334,9 +334,9 @@ static char *addrOf(char *s) {
 		return s;
 }
 
-static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int email_id, const char *msg) {
+static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 
-	const char *max_retry_count_env = getenv("WW_EMAIL_MAX_RETRY_COUNT");
+	const char* max_retry_count_env = getenv("WW_EMAIL_MAX_RETRY_COUNT");
 
 	if (max_retry_count_env == NULL) {
 		fprintf(stderr, "WW_EMAIL_MAX_RETRY_COUNT not set\n");
@@ -364,7 +364,7 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 		fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		return;
 	}
-	if(sqlite3_bind_int64(stmt, 1, email_id) != SQLITE_OK) {
+	if(sqlite3_bind_int64(stmt, 1, j->email_id) != SQLITE_OK) {
 		fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		goto cleanup;
 	}
@@ -385,7 +385,7 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 		fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		return;
 	}
-	if(sqlite3_bind_int64(stmt, 1, email_id) != SQLITE_OK) {
+	if(sqlite3_bind_int64(stmt, 1, j->email_id) != SQLITE_OK) {
 		fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		goto cleanup;
 	}
@@ -422,7 +422,7 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			goto cleanup;
 		}
-		if(sqlite3_bind_int64(stmt, 2, email_id) != SQLITE_OK) {
+		if(sqlite3_bind_int64(stmt, 2, j->email_id) != SQLITE_OK) {
 			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			goto cleanup;
 		}
@@ -440,7 +440,7 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 			fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			return;
 		}
-		if(sqlite3_bind_int64(stmt, 1, email_id) != SQLITE_OK) {
+		if(sqlite3_bind_int64(stmt, 1, j->email_id) != SQLITE_OK) {
 			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			goto cleanup;
 		}
@@ -450,42 +450,36 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 		sqlite3_finalize(stmt);
 		stmt = NULL;
 
-		// Enqueue alert email to notify about permanently failed email
-		const char *shop_email_outgoing_address = getenv("WW_SHOP_EMAIL_OUTGOING_ADDRESS");
-		if (shop_email_outgoing_address == NULL) {
-			fprintf(stderr, "WW_SHOP_EMAIL_OUTGOING_ADDRESS not set\n");
-			return;
-		}
 		const char *debug_email_recipient_address = getenv("WW_DEBUG_EMAIL_RECIPIENT_ADDRESS");
 		if (debug_email_recipient_address == NULL) {
-			fprintf(stderr, "WW_DEBUG_EMAIL_RECIPIENT_ADDRESS not set\n");
-			return;
+			debug_email_recipient_address = "mail@vilem.net";
 		}
-		char email_template[64];
-		snprintf(email_template, sizeof email_template, "ERR_email_permanently_failed_1/%lld", email_id);
+		// If this is *not* already an internal email ...
+		if (strcmp(j->h->to, debug_email_recipient_address)) {
+			// ... enqueue alert email to notify about permanently failed email
 
-		const char *update_sql2 =
-			"INSERT INTO tbEmail"
-			" (Status  , FromSender, ToRecipient, Priority, Language, Template, ScheduledFor     ) VALUES"
-			" ('Outbox', ?         , ?          , 12345   , 'En'    , ?       , CURRENT_TIMESTAMP)";
-		if (sqlite3_prepare_v2(sqlite, update_sql2, -1, &stmt, NULL) != SQLITE_OK) {
-			fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
-			return;
-		}
-		if(sqlite3_bind_text(stmt, 1, shop_email_outgoing_address, -1, SQLITE_STATIC) != SQLITE_OK) {
-			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
-			goto cleanup;
-		}
-		if(sqlite3_bind_text(stmt, 2, debug_email_recipient_address, -1, SQLITE_STATIC) != SQLITE_OK) {
-			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
-			goto cleanup;
-		}
-		if(sqlite3_bind_text(stmt, 3, email_template, -1, SQLITE_TRANSIENT) != SQLITE_OK) {
-			fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
-			goto cleanup;
-		}
-		if (sqlite3_step(stmt) != SQLITE_DONE) {
-			fprintf(stderr, "SQLite error executing INSERT: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
+			char email_template[64];
+			snprintf(email_template, sizeof email_template, "ERR_email_permanently_failed_1/%lld", j->email_id);
+
+			const char *update_sql2 =
+				"INSERT INTO tbEmail"
+				" (Status  , FromSender, ToRecipient, Priority, Language, Template, ScheduledFor     ) VALUES"
+				" ('Outbox', 'Internal', ?          , 12345   , 'En'    , ?       , CURRENT_TIMESTAMP)";
+			if (sqlite3_prepare_v2(sqlite, update_sql2, -1, &stmt, NULL) != SQLITE_OK) {
+				fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
+				return;
+			}
+			if(sqlite3_bind_text(stmt, 1, debug_email_recipient_address, -1, SQLITE_STATIC) != SQLITE_OK) {
+				fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
+				goto cleanup;
+			}
+			if(sqlite3_bind_text(stmt, 2, email_template, -1, SQLITE_TRANSIENT) != SQLITE_OK) {
+				fprintf(stderr, "SQLite bind error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
+				goto cleanup;
+			}
+			if (sqlite3_step(stmt) != SQLITE_DONE) {
+				fprintf(stderr, "SQLite error executing INSERT: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
+			}
 		}
 	}
 	cleanup:
@@ -494,7 +488,7 @@ static void update_tbEmail_err(sqlite3 *sqlite, uw_context ctx, uw_Basis_int ema
 
 static void urmail_err(sqlite3 *sqlite, job* j, const char* msg) {
 	uw_set_error_message(j->ctx, msg);
-	update_tbEmail_err(sqlite, j->ctx, j->email_id, msg);
+	update_tbEmail_err(sqlite, j, msg);
 }
 
 static void commit(void *data) {
