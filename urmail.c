@@ -488,6 +488,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 
 static void urmail_err(sqlite3 *sqlite, job* j, const char* msg) {
 	uw_set_error_message(j->ctx, msg);
+	fprintf(stderr, "%s", msg);
 	update_tbEmail_err(sqlite, j, msg);
 }
 
