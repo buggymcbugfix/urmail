@@ -32,7 +32,7 @@ static int ww_log_debug(void) {
 #define DBG(fmt, ...) \
 	do { \
 		if (ww_log_debug()) \
-			fprintf(stderr, "DEBUG [urmail]: " fmt, ##__VA_ARGS__); \
+			fprintf(stderr, "DEBUG [urmail] " _LOC_ ": " fmt, ##__VA_ARGS__); \
 	} while (0)
 // END DEBUG
 
