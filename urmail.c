@@ -681,7 +681,7 @@ static void commit(void *data) {
 
 	for (int attempt = 0; attempt < max_retries; ++attempt) {
 
-		DBG("send attempt #%d\n", attempt);
+		DBG("send attempt #%d of %d\n", attempt + 1, max_retries);
 		curl_easy_reset(curl);
 
 		curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
