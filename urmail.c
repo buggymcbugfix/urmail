@@ -455,8 +455,8 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 			debug_email_recipient_address = "mail@vilem.net";
 		}
 		// If this is *not* already an internal email ...
-		if (strcmp(j->h->to, debug_email_recipient_address)) {
-			DBG("enqueue ERR_email_permanently_failed");
+		if (strcmp(j->h->to, debug_email_recipient_address)) { // hack: should do `SELECT FromSender = 'Internal' FROM tbEmail WHERE id = ?`. Also should set up alternative notification email in case the main one fails.
+			DBG("enqueue ERR_email_permanently_failed\n");
 			// ... enqueue alert email to notify about permanently failed email
 
 			char email_template[64];
@@ -482,7 +482,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 				fprintf(stderr, "SQLite error executing INSERT: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			}
 		} else {
-			DBG("skipping ERR_email_permanently_failed");
+			DBG("skipping ERR_email_permanently_failed\n");
 		}
 	}
 	cleanup:
@@ -738,7 +738,7 @@ static void commit(void *data) {
 
 	if (res != CURLE_OK) {
 		char msg[256];
-		snprintf(msg, sizeof(msg), "urmail: Curl error sending e-mail: %s", curl_easy_strerror(res));
+		snprintf(msg, sizeof(msg), "urmail: Curl error sending e-mail: %s\n", curl_easy_strerror(res));
 		urmail_err(sqlite, j, msg);
 		return;
 	}
