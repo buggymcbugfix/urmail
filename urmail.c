@@ -359,7 +359,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 
 	sqlite3_stmt *stmt = NULL;
 
-	const char *sql = "SELECT RetryCount FROM tbEmail WHERE Id = ?";
+	const char *sql = "SELECT RetryCount FROM tbEmail WHERE EmailId = ?";
 	if (sqlite3_prepare_v2(sqlite, sql, -1, &stmt, NULL) != SQLITE_OK) {
 		fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		return;
@@ -413,7 +413,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 			" SET"
 				" RetryCount = RetryCount + 1,"
 				" RetryAt = datetime(CURRENT_TIMESTAMP, '+' || ? || ' minutes')"
-				" WHERE Id = ?";
+				" WHERE EmailId = ?";
 		if (sqlite3_prepare_v2(sqlite, update_sql, -1, &stmt, NULL) != SQLITE_OK) {
 			fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			return;
@@ -435,7 +435,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 			"UPDATE tbEmail"
 			" SET"
 				" Status = 'PermanentlyFailed'"
-				" WHERE Id = ?";
+				" WHERE EmailId = ?";
 		if (sqlite3_prepare_v2(sqlite, update_sql, -1, &stmt, NULL) != SQLITE_OK) {
 			fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 			return;
@@ -455,7 +455,7 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 			debug_email_recipient_address = "mail@vilem.net";
 		}
 		// If this is *not* already an internal email ...
-		if (strcmp(j->h->to, debug_email_recipient_address)) { // hack: should do `SELECT FromSender = 'Internal' FROM tbEmail WHERE id = ?`. Also should set up alternative notification email in case the main one fails.
+		if (strcmp(j->h->to, debug_email_recipient_address)) { // hack: should do `SELECT Sender = 'Internal' FROM tbEmail WHERE EmailId = ?`. Also should set up alternative notification email in case the main one fails.
 			DBG("enqueue ERR_email_permanently_failed\n");
 			// ... enqueue alert email to notify about permanently failed email
 
@@ -464,8 +464,8 @@ static void update_tbEmail_err(sqlite3* sqlite, job* j, const char* msg) {
 
 			const char *update_sql2 =
 				"INSERT INTO tbEmail"
-				" (Status  , FromSender, ToRecipient, Priority, Language, Template, ScheduledFor     ) VALUES"
-				" ('Outbox', 'Internal', ?          , 12345   , 'En'    , ?       , CURRENT_TIMESTAMP)";
+				" (Status   , Sender     , Recipient , Priority , Language , Template , ScheduledFor     ) VALUES"
+				" ('Outbox' , 'Internal' , ?         , 12345    , 'En'     , ?        , CURRENT_TIMESTAMP)";
 			if (sqlite3_prepare_v2(sqlite, update_sql2, -1, &stmt, NULL) != SQLITE_OK) {
 				fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 				return;
@@ -513,7 +513,7 @@ static void commit(void *data) {
 	sqlite3_busy_timeout(sqlite, 1000);
 	sqlite3_stmt *stmt;
 
-	const char *sql = "SELECT 1 FROM tbEmail WHERE Id = ? AND Status = 'Outbox'";
+	const char *sql = "SELECT 1 FROM tbEmail WHERE EmailId = ? AND Status = 'Outbox'";
 	if (sqlite3_prepare_v2(sqlite, sql, -1, &stmt, NULL) != SQLITE_OK) {
 		fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		goto close;
@@ -524,7 +524,7 @@ static void commit(void *data) {
 	}
 
 	if (sqlite3_step(stmt) != SQLITE_ROW) {
-		fprintf(stderr, "Email Id %lld does not have status Outbox " _LOC_ "\n", j->email_id);
+		fprintf(stderr, "EmailId %lld does not have status Outbox " _LOC_ "\n", j->email_id);
 		goto cleanup;
 	}
 
@@ -748,7 +748,7 @@ static void commit(void *data) {
 		" SET"
 			" Status = 'Sent',"
 			" SentAt = CURRENT_TIMESTAMP"
-		" WHERE Id = ?";
+		" WHERE EmailId = ?";
 	if (sqlite3_prepare_v2(sqlite, update_sql, -1, &stmt, NULL) != SQLITE_OK) {
 		fprintf(stderr, "SQLite error: %s at " _LOC_ "\n", sqlite3_errmsg(sqlite));
 		return;
