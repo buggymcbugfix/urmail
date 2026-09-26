@@ -83,11 +83,21 @@ static void header(uw_context ctx, uw_Basis_string s) {
       uw_error(ctx, FATAL, "Header value contains newline");
 }
 
+// An address is either an addr-spec or "Display Name <addr-spec>".  The
+// addr-spec is what goes into the envelope, so it must be there.
 static void address(uw_context ctx, uw_Basis_string s) {
+  const char *p;
+
   header(ctx, s);
 
   if (strchr(s, ','))
     uw_error(ctx, FATAL, "E-mail address contains comma");
+
+  for (p = s; *p == ' ' || *p == '\t'; ++p);
+  if (!*p)
+    uw_error(ctx, FATAL, "Empty e-mail address");
+  if (strchr(p, '<') && !strchr(p, '>'))
+    uw_error(ctx, FATAL, "E-mail address has '<' but no '>'");
 }
 
 uw_Urmail_headers uw_Urmail_from(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
@@ -365,23 +375,26 @@ static void commit(void *data) {
 
   if (j->h->to) {
     char *saveptr, *addr = strtok_r(j->h->to, ",", &saveptr);
-    do {
-      recipients = curl_slist_append(recipients, addrOf(addr));
-    } while ((addr = strtok_r(NULL, ",", &saveptr)));
+    if (addr)
+      do {
+        recipients = curl_slist_append(recipients, addrOf(addr));
+      } while ((addr = strtok_r(NULL, ",", &saveptr)));
   }
 
   if (j->h->cc) {
     char *saveptr, *addr = strtok_r(j->h->cc, ",", &saveptr);
-    do {
-      recipients = curl_slist_append(recipients, addrOf(addr));
-    } while ((addr = strtok_r(NULL, ",", &saveptr)));
+    if (addr)
+      do {
+        recipients = curl_slist_append(recipients, addrOf(addr));
+      } while ((addr = strtok_r(NULL, ",", &saveptr)));
   }
 
   if (j->h->bcc) {
     char *saveptr, *addr = strtok_r(j->h->bcc, ",", &saveptr);
-    do {
-      recipients = curl_slist_append(recipients, addrOf(addr));
-    } while ((addr = strtok_r(NULL, ",", &saveptr)));
+    if (addr)
+      do {
+        recipients = curl_slist_append(recipients, addrOf(addr));
+      } while ((addr = strtok_r(NULL, ",", &saveptr)));
   }
   
   curl = curl_easy_init();
