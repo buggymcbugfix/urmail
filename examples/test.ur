@@ -1,7 +1,7 @@
 val server = "smtp://you.com:465"
 val user = "you"
 val password = "pass"
-val send = Urmail.send server True None user password
+val send = Urmail.send server (Urmail.Tls None) user password
                
 fun sendPlain r =
     send (Urmail.from r.From (Urmail.to r.To (Urmail.subject r.Subject Urmail.empty)))
@@ -10,7 +10,7 @@ fun sendPlain r =
 
 fun sendHtml r =
     send (Urmail.from r.From (Urmail.to r.To (Urmail.subject r.Subject Urmail.empty)))
-         r.Body (Some <xml><a href={url (main ())}>Spread the love!</a></xml>);
+         r.Body (Some <xml><body><a href={url (main ())}>Spread the love!</a></body></xml>);
     return <xml>Sent</xml>
 
 and main () = return <xml><body>

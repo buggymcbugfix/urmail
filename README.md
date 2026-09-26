@@ -45,3 +45,11 @@ the message; `-u` rewrites the expected files.  `URWEB` names the compiler
 to use (with the flags in `URWEB_FLAGS`), otherwise the one on the PATH.
 The runner needs python3, openssl (a self-signed certificate for STARTTLS)
 and curl.
+
+Debugging
+---------
+
+`URMAIL_DEBUG=1` in the application's environment traces every send on
+stderr, with libcurl's own verbose output.  `URMAIL_TIMEOUT=SECONDS`
+changes how long a send may go without progress before it is given up
+(60 by default).
