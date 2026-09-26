@@ -222,7 +222,7 @@ def main():
         try:
             session.run()
         except (ssl.SSLError, ConnectionError, socket.timeout) as e:
-            transcript.append("(connection error: %s)" % type(e).__name__)
+            transcript.append("(connection error)")
         finally:
             try:
                 session.conn.close()
