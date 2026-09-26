@@ -8,7 +8,7 @@ struct headers {
   uw_Basis_string from, to, cc, bcc, subject, user_agent;
 };
 
-typedef struct headers *uw_Email_headers;
+typedef struct headers *uw_Urmail_headers;
 
 static uw_Basis_string copy_string(uw_Basis_string s) {
   if (s == NULL)
@@ -49,8 +49,8 @@ static void free_string(uw_Basis_string s) {
     free(s);
 }
 
-static uw_Email_headers copy_headers(uw_Email_headers h) {
-  uw_Email_headers h2 = malloc(sizeof(struct headers));
+static uw_Urmail_headers copy_headers(uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = malloc(sizeof(struct headers));
   h2->from = copy_string(h->from);
   h2->to = copy_string(h->to);
   h2->cc = copy_string(h->cc);
@@ -60,7 +60,7 @@ static uw_Email_headers copy_headers(uw_Email_headers h) {
   return h2;
 }
 
-static void free_headers(uw_Email_headers h) {
+static void free_headers(uw_Urmail_headers h) {
   free_string(h->from);
   free_string(h->to);
   free_string(h->cc);
@@ -70,7 +70,7 @@ static void free_headers(uw_Email_headers h) {
   free(h);
 }
 
-uw_Email_headers uw_Email_empty = NULL;
+uw_Urmail_headers uw_Urmail_empty = NULL;
 
 static void header(uw_context ctx, uw_Basis_string s) {
   if (strlen(s) > 100)
@@ -88,8 +88,8 @@ static void address(uw_context ctx, uw_Basis_string s) {
     uw_error(ctx, FATAL, "E-mail address contains comma");
 }
 
-uw_Email_headers uw_Email_from(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_from(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
 
   if (h)
     *h2 = *h;
@@ -105,8 +105,8 @@ uw_Email_headers uw_Email_from(uw_context ctx, uw_Basis_string s, uw_Email_heade
   return h2;
 }
 
-uw_Email_headers uw_Email_to(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_to(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
   if (h)
     *h2 = *h;
   else
@@ -123,8 +123,8 @@ uw_Email_headers uw_Email_to(uw_context ctx, uw_Basis_string s, uw_Email_headers
   return h2;
 }
 
-uw_Email_headers uw_Email_cc(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_cc(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
   if (h)
     *h2 = *h;
   else
@@ -141,8 +141,8 @@ uw_Email_headers uw_Email_cc(uw_context ctx, uw_Basis_string s, uw_Email_headers
   return h2;
 }
 
-uw_Email_headers uw_Email_bcc(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_bcc(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
   if (h)
     *h2 = *h;
   else
@@ -159,8 +159,8 @@ uw_Email_headers uw_Email_bcc(uw_context ctx, uw_Basis_string s, uw_Email_header
   return h2;
 }
 
-uw_Email_headers uw_Email_subject(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_subject(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
 
   if (h)
     *h2 = *h;
@@ -176,8 +176,8 @@ uw_Email_headers uw_Email_subject(uw_context ctx, uw_Basis_string s, uw_Email_he
   return h2;
 }
 
-uw_Email_headers uw_Email_user_agent(uw_context ctx, uw_Basis_string s, uw_Email_headers h) {
-  uw_Email_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+uw_Urmail_headers uw_Urmail_user_agent(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
 
   if (h)
     *h2 = *h;
@@ -195,7 +195,7 @@ uw_Email_headers uw_Email_user_agent(uw_context ctx, uw_Basis_string s, uw_Email
 
 typedef struct {
   uw_context ctx;
-  uw_Email_headers h;
+  uw_Urmail_headers h;
   uw_Basis_string server, ca, user, password, body, xbody;
   uw_Basis_bool ssl;
 } job;
@@ -433,10 +433,10 @@ static void free_job(void *p, int will_retry) {
   free(j);
 }
 
-uw_unit uw_Email_send(uw_context ctx, uw_Basis_string server,
+uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server,
                      uw_Basis_bool ssl, uw_Basis_string ca,
                      uw_Basis_string user, uw_Basis_string password,
-                     uw_Email_headers h, uw_Basis_string body, uw_Basis_string xbody) {
+                     uw_Urmail_headers h, uw_Basis_string body, uw_Basis_string xbody) {
   job *j;
 
   if (!h || !h->from)
