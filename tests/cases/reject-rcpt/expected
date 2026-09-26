@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: server refused: Failed sending data to the peer (SMTP 550)
-</body></html>
+--- status
+NotSent: server refused: Failed sending data to the peer (SMTP 550)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -19,4 +18,3 @@ S: 550 no such user
 C: QUIT
 S: 221 bye
 --- application log
-Fatal error: urmail: not sent: server refused: Failed sending data to the peer (SMTP 550)

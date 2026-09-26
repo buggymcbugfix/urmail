@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: Requested SSL level failed
-</body></html>
+--- status
+NotSent: Requested SSL level failed
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -9,4 +8,3 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 (client closed the connection)
 --- application log
-Fatal error: urmail: not sent: Requested SSL level failed

@@ -12,213 +12,139 @@
 
 struct headers {
   uw_Basis_string from, to, cc, bcc, subject, user_agent, message_id;
+  // What is wrong with the message, if anything: the first problem a builder
+  // below found.  Urmail.mkHeaders asks for it (problem, below) and reports
+  // it, so that no builder has to fail.
+  const char *error;
 };
 
-typedef struct headers *uw_Urmail_headers;
+typedef struct headers *uw_UrmailFfi_headers;
 
-static uw_Basis_string copy_string(uw_Basis_string s) {
-  if (s == NULL)
-    return NULL;
-  else
-    return strdup(s);
-}
-
-static void free_string(uw_Basis_string s) {
-  if (s == NULL)
-    return;
-  else
-    free(s);
-}
-
-static uw_Urmail_headers copy_headers(uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = malloc(sizeof(struct headers));
-  h2->from = copy_string(h->from);
-  h2->to = copy_string(h->to);
-  h2->cc = copy_string(h->cc);
-  h2->bcc = copy_string(h->bcc);
-  h2->subject = copy_string(h->subject);
-  h2->user_agent = copy_string(h->user_agent);
-  h2->message_id = copy_string(h->message_id);
-  return h2;
-}
-
-static void free_headers(uw_Urmail_headers h) {
-  free_string(h->from);
-  free_string(h->to);
-  free_string(h->cc);
-  free_string(h->bcc);
-  free_string(h->subject);
-  free_string(h->user_agent);
-  free_string(h->message_id);
-  free(h);
-}
-
-uw_Urmail_headers uw_Urmail_empty = NULL;
+uw_UrmailFfi_headers uw_UrmailFfi_empty = NULL;
 
 // A header value may be anything but a line break; long or non-ASCII values
 // are encoded and folded when the message is assembled (RFC 2047 and 5322).
 // The limit is generous but there has to be one: it bounds the buffers.
-static void header(uw_context ctx, uw_Basis_string s) {
+// The checks return what is wrong, or NULL.
+static const char *header(uw_Basis_string s) {
   if (strlen(s) > 2000)
-    uw_error(ctx, FATAL, "Header value too long");
+    return "Header value too long";
 
   for (; *s; ++s)
     if (*s == '\r' || *s == '\n')
-      uw_error(ctx, FATAL, "Header value contains newline");
+      return "Header value contains newline";
+
+  return NULL;
 }
 
 // An address is either an addr-spec or "Display Name <addr-spec>".  The
 // addr-spec is what goes into the envelope, so it must be there.
-static void address(uw_context ctx, uw_Basis_string s) {
-  const char *p;
+static const char *address(uw_Basis_string s) {
+  const char *p, *e;
 
-  header(ctx, s);
+  if ((e = header(s)))
+    return e;
 
   if (strchr(s, ','))
-    uw_error(ctx, FATAL, "E-mail address contains comma");
+    return "E-mail address contains comma";
 
   for (p = s; *p == ' ' || *p == '\t'; ++p);
   if (!*p)
-    uw_error(ctx, FATAL, "Empty e-mail address");
+    return "Empty e-mail address";
   if (strchr(p, '<') && !strchr(p, '>'))
-    uw_error(ctx, FATAL, "E-mail address has '<' but no '>'");
+    return "E-mail address has '<' but no '>'";
+
+  return NULL;
 }
 
-uw_Urmail_headers uw_Urmail_from(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+// A copy of the headers to add to, with the first problem kept.
+static uw_UrmailFfi_headers extend(uw_context ctx, uw_UrmailFfi_headers h, const char *error) {
+  uw_UrmailFfi_headers h2 = uw_malloc(ctx, sizeof(struct headers));
 
   if (h)
     *h2 = *h;
   else
     memset(h2, 0, sizeof(*h2));
 
-  if (h2->from)
-    uw_error(ctx, FATAL, "Duplicate From header");
+  if (error && !h2->error)
+    h2->error = error;
 
-  address(ctx, s);
+  return h2;
+}
+
+// A comma-separated list of addresses, as the envelope wants them.
+static uw_Basis_string append_address(uw_context ctx, uw_Basis_string list, uw_Basis_string s) {
+  if (list) {
+    uw_Basis_string all = uw_malloc(ctx, strlen(list) + 2 + strlen(s));
+    sprintf(all, "%s,%s", list, s);
+    return all;
+  } else
+    return uw_strdup(ctx, s);
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->from ? "Duplicate From header" : address(s));
   h2->from = uw_strdup(ctx, s);
-
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_to(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  address(ctx, s);
-  if (h2->to) {
-    uw_Basis_string all = uw_malloc(ctx, strlen(h2->to) + 2 + strlen(s));
-    sprintf(all, "%s,%s", h2->to, s);
-    h2->to = all;
-  } else
-    h2->to = uw_strdup(ctx, s);
-
+uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
+  h2->to = append_address(ctx, h2->to, s);
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_cc(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  address(ctx, s);
-  if (h2->cc) {
-    uw_Basis_string all = uw_malloc(ctx, strlen(h2->cc) + 2 + strlen(s));
-    sprintf(all, "%s,%s", h2->cc, s);
-    h2->cc = all;
-  } else
-    h2->cc = uw_strdup(ctx, s);
-
+uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
+  h2->cc = append_address(ctx, h2->cc, s);
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_bcc(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  address(ctx, s);
-  if (h2->bcc) {
-    uw_Basis_string all = uw_malloc(ctx, strlen(h2->bcc) + 2 + strlen(s));
-    sprintf(all, "%s,%s", h2->bcc, s);
-    h2->bcc = all;
-  } else
-    h2->bcc = uw_strdup(ctx, s);
-
+uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
+  h2->bcc = append_address(ctx, h2->bcc, s);
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_subject(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  if (h2->subject)
-    uw_error(ctx, FATAL, "Duplicate Subject header");
-
-  header(ctx, s);
+uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->subject ? "Duplicate Subject header" : header(s));
   h2->subject = uw_strdup(ctx, s);
-
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_user_agent(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  if (h2->user_agent)
-    uw_error(ctx, FATAL, "Duplicate User-Agent header");
-
-  header(ctx, s);
+uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->user_agent ? "Duplicate User-Agent header" : header(s));
   h2->user_agent = uw_strdup(ctx, s);
-
   return h2;
 }
 
-uw_Urmail_headers uw_Urmail_messageId(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
-  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+static const char *message_id(uw_Basis_string s) {
   size_t n = strlen(s);
-  const char *p;
+  const char *p, *e;
 
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  if (h2->message_id)
-    uw_error(ctx, FATAL, "Duplicate Message-ID header");
-
-  header(ctx, s);
+  if ((e = header(s)))
+    return e;
   if (n < 3 || s[0] != '<' || s[n-1] != '>' || !strchr(s, '@'))
-    uw_error(ctx, FATAL, "Message-ID is not of the form <left@right>");
+    return "Message-ID is not of the form <left@right>";
   for (p = s; *p; ++p)
     if (*p == ' ' || *p == '\t' || (*p == '<' && p != s) || (*p == '>' && p != s + n - 1))
-      uw_error(ctx, FATAL, "Message-ID contains a space or a stray bracket");
-  h2->message_id = uw_strdup(ctx, s);
+      return "Message-ID contains a space or a stray bracket";
+  return NULL;
+}
 
+uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->message_id ? "Duplicate Message-ID header" : message_id(s));
+  h2->message_id = uw_strdup(ctx, s);
   return h2;
 }
 
+// What deliver() needs: the arguments of send, the TLS choice unpacked, and
+// the message as it goes over the wire.  Nothing here outlives the call.
 typedef struct {
-  uw_context ctx;
-  uw_Urmail_headers h;
-  uw_Basis_string server, ca, user, password;
-  enum uw_Urmail_tls_tag tls;
-  char *message;   // the message as it goes over the wire, assembled at the call
+  uw_UrmailFfi_headers h;
+  const char *server, *ca, *user, *password;
+  enum uw_UrmailFfi_tls_tag tls;
+  const char *message;
   size_t length;
 } job;
 
@@ -256,8 +182,8 @@ static char *addrOf(char *s) {
     return s;
 }
 
-/* ---- A growable byte buffer for assembling the message.  malloc-based, so
-   that the message can live in the job until the transaction commits. ---- */
+/* ---- A growable byte buffer for assembling the message.  malloc-based,
+   since it grows by realloc; freed once the message is delivered. ---- */
 
 typedef struct {
   char *s;
@@ -525,7 +451,7 @@ static void generate_message_id(const char *from, char *out, size_t n) {
 // of the text body and the HTML document.  `xbody` is the string of a `page`
 // value, which is the document's contents without the html element (the
 // runtime adds that when it serves a page), hence the wrapper.
-static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
+static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
                      uw_Basis_string body, uw_Basis_string xbody) {
   char date[64], message_id[512];
 
@@ -591,12 +517,12 @@ static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
 /* ---- Delivery: a persistent connection per server and account, one send at
    a time on each, and an outcome that says what is known. ---- */
 
-typedef enum { SENT, NOT_SENT, UNKNOWN } outcome_kind;
+typedef enum { SENT, NOT_SENT, MAYBE_SENT } outcome_kind;
 
 typedef struct {
   outcome_kind kind;
-  char message[512];  // for NOT_SENT and UNKNOWN: what libcurl said, and the
-                      // server's last reply code if there was one
+  char message[512];  // for NOT_SENT and MAYBE_SENT: what libcurl said, and
+                      // the server's last reply code if there was one
 } outcome;
 
 // Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
@@ -626,7 +552,7 @@ static long timeout_seconds(void) {
 
 typedef struct smtp_conn {
   char *server, *user, *password, *ca;
-  enum uw_Urmail_tls_tag tls;
+  enum uw_UrmailFfi_tls_tag tls;
   CURL *curl;
   pthread_mutex_t lock;  // held for the duration of a send on this connection
   struct smtp_conn *next;
@@ -706,16 +632,16 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   curl_easy_setopt(curl, CURLOPT_URL, j->server);
 
   switch (j->tls) {
-  case uw_Urmail_Plain:
+  case uw_UrmailFfi_Plain:
     curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_NONE);
     break;
-  case uw_Urmail_Tls:
+  case uw_UrmailFfi_Tls:
     curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
     if (j->ca)
       curl_easy_setopt(curl, CURLOPT_CAINFO, j->ca);
     // else libcurl's default: the system's CA bundle, verified.
     break;
-  case uw_Urmail_TlsNoVerify:
+  case uw_UrmailFfi_TlsNoVerify:
     curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -744,8 +670,8 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
 //     When the connection was a reused one, the server may simply have
 //     dropped it while idle, and one more attempt is made, on a fresh one.
 //   - The connection broke after the message was uploaded, in full or in part,
-//     and the server's verdict never arrived: unknown.  No retry here; that is
-//     the caller's decision, since it may mean a duplicate.
+//     and the server's verdict never arrived: maybe sent.  No retry here; that
+//     is the caller's decision, since it may mean a duplicate.
 static void deliver(job *j, outcome *o) {
   smtp_conn *c = get_connection(j);
   struct curl_slist *recipients = NULL;
@@ -799,7 +725,7 @@ static void deliver(job *j, outcome *o) {
     }
 
     if (uploaded > 0) {
-      o->kind = UNKNOWN;
+      o->kind = MAYBE_SENT;
       snprintf(o->message, sizeof o->message, "connection lost after the message was sent: %s",
                curl_easy_strerror(res));
       break;
@@ -826,70 +752,72 @@ static void deliver(job *j, outcome *o) {
   curl_slist_free_all(recipients);
 }
 
-// The transactional's commit: after the transaction committed, send, and
-// report a failure as the error of the transaction.  The runtime logs it
-// and, in a request handler, runs the application's error handler.
-static void commit(void *data) {
-  job *j = data;
-  outcome o;
-
-  deliver(j, &o);
-  switch (o.kind) {
-  case SENT:
-    break;
-  case NOT_SENT:
-    uw_set_error_message(j->ctx, "urmail: not sent: %s", o.message);
-    break;
-  case UNKNOWN:
-    uw_set_error_message(j->ctx, "urmail: outcome unknown: %s", o.message);
-    break;
-  }
-}
-
-static void free_job(void *p, int will_retry) {
-  job *j = p;
-
-  free_headers(j->h);
-  free_string(j->server);
-  free_string(j->ca);
-  free_string(j->user);
-  free_string(j->password);
-  free(j->message);
-  free(j);
-}
-
-uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server, uw_Urmail_tls tls,
-                     uw_Basis_string user, uw_Basis_string password,
-                     uw_Urmail_headers h, uw_Basis_string body, uw_Basis_string xbody) {
-  job *j;
-  buf b = {NULL, 0, 0};
-
+// What is wrong with the message, or NULL: the problems the builders found,
+// and what only the whole message shows.
+static const char *check(uw_UrmailFfi_headers h) {
   if (!h || !h->from)
-    uw_error(ctx, FATAL, "No From address set for e-mail message");
-
+    return "No From address set for e-mail message";
+  if (h->error)
+    return h->error;
   if (!h->to && !h->cc && !h->bcc)
-    uw_error(ctx, FATAL, "No recipients specified for e-mail message");
+    return "No recipients specified for e-mail message";
+  return NULL;
+}
 
-  // Everything that can fail happens here, in the transaction, where an error
-  // is an error of the request; the commit callback only talks to the server.
+// UrmailFfi.problem: what check() says, for Urmail.mkHeaders to report.  An
+// `option string` is the string itself, or NULL for None.
+uw_Basis_string uw_UrmailFfi_problem(uw_context ctx, uw_UrmailFfi_headers h) {
+  const char *wrong = check(h);
+
+  return wrong ? uw_strdup(ctx, wrong) : NULL;
+}
+
+// Headers that Urmail.mkHeaders did not pass: not something the Ur side can
+// produce, so an error of the caller.
+static void refuse(uw_context ctx, uw_UrmailFfi_headers h) {
+  const char *wrong = check(h);
+
+  if (wrong)
+    uw_error(ctx, FATAL, "urmail: headers not from mkHeaders: %s", wrong);
+}
+
+// UrmailFfi.send, in io: assemble the message, send it now, and say what
+// became of it.
+uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server, uw_UrmailFfi_tls tls,
+                                          uw_Basis_string user, uw_Basis_string password,
+                                          uw_UrmailFfi_headers h, uw_Basis_string body, uw_Basis_string xbody) {
+  buf b = {NULL, 0, 0};
+  job j;
+  outcome o;
+  uw_UrmailFfi_sendStatus r = uw_malloc(ctx, sizeof(struct uw_UrmailFfi_sendStatus));
+
+  refuse(ctx, h);
   assemble(ctx, &b, h, body, xbody);
 
-  j = malloc(sizeof(job));
+  j.h = h;
+  j.server = server;
+  j.tls = tls->tag;
+  j.ca = tls->tag == uw_UrmailFfi_Tls ? tls->data.uw_Tls : NULL;
+  j.user = user;
+  j.password = password;
+  j.message = b.s;
+  j.length = b.len;
 
-  j->ctx = ctx;
-  j->h = copy_headers(h);
-  j->server = copy_string(server);
-  j->tls = tls->tag;
-  j->ca = tls->tag == uw_Urmail_Tls ? copy_string(tls->data.uw_Tls) : NULL;
-  j->user = copy_string(user);
-  j->password = copy_string(password);
-  j->message = b.s;
-  j->length = b.len;
+  deliver(&j, &o);
+  free(b.s);
 
-  if (uw_register_transactional(ctx, j, commit, NULL, free_job)) {
-    free_job(j, 0);
-    uw_error(ctx, FATAL, "urmail: too many transactionals registered");
+  switch (o.kind) {
+  case SENT:
+    r->tag = uw_UrmailFfi_Sent;
+    break;
+  case NOT_SENT:
+    r->tag = uw_UrmailFfi_NotSent;
+    r->data.uw_NotSent = uw_strdup(ctx, o.message);
+    break;
+  case MAYBE_SENT:
+    r->tag = uw_UrmailFfi_MaybeSent;
+    r->data.uw_MaybeSent = uw_strdup(ctx, o.message);
+    break;
   }
-
-  return uw_unit_v;
+  return r;
 }

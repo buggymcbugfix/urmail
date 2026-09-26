@@ -8,6 +8,7 @@
   openssl,
   pkg-config,
   python3,
+  sqlite,
   stdenv,
   urweb,
 }:
@@ -27,7 +28,9 @@ stdenv.mkDerivation {
         ./lib.urp
         ./urmail.c
         ./urmail.h
+        ./urmail.ur
         ./urmail.urs
+        ./urmailFfi.urs
         ./examples
         ./tests
         ./README.md
@@ -60,12 +63,14 @@ stdenv.mkDerivation {
   dontDisableStatic = true;
 
   # The tests compile and run an Ur/Web application against a fake SMTP
-  # server (python) with a self-signed certificate (openssl).
+  # server (python) with a self-signed certificate (openssl); the application
+  # keeps its queue in a database (sqlite3).
   doCheck = true;
   nativeCheckInputs = [
     curl
     openssl
     python3
+    sqlite
     urweb
   ];
 
