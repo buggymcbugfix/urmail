@@ -1,0 +1,5 @@
+# STARTTLS with verification switched off explicitly: works against the
+# self-signed certificate, as an opt-in.
+mode=accept
+tls=starttls-noverify
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

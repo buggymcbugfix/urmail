@@ -209,7 +209,7 @@ typedef struct {
   uw_context ctx;
   uw_Urmail_headers h;
   uw_Basis_string server, ca, user, password, body, xbody;
-  uw_Basis_bool ssl;
+  enum uw_Urmail_tls_tag tls;
 } job;
 
 typedef struct {
@@ -408,14 +408,21 @@ static void commit(void *data) {
   curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
   curl_easy_setopt(curl, CURLOPT_URL, j->server);
 
-  if (j->ssl) {
+  switch (j->tls) {
+  case uw_Urmail_Plain:
+    curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_NONE);
+    break;
+  case uw_Urmail_Tls:
     curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
-    if (j->ca) {
+    if (j->ca)
       curl_easy_setopt(curl, CURLOPT_CAINFO, j->ca);
-    } else {
-      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-    }
+    // else libcurl's default: the system's CA bundle, verified.
+    break;
+  case uw_Urmail_TlsNoVerify:
+    curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    break;
   }
 
   curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(j->h->from));
@@ -448,8 +455,7 @@ static void free_job(void *p, int will_retry) {
   free(j);
 }
 
-uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server,
-                     uw_Basis_bool ssl, uw_Basis_string ca,
+uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server, uw_Urmail_tls tls,
                      uw_Basis_string user, uw_Basis_string password,
                      uw_Urmail_headers h, uw_Basis_string body, uw_Basis_string xbody) {
   job *j;
@@ -465,8 +471,8 @@ uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server,
   j->ctx = ctx;
   j->h = copy_headers(h);
   j->server = copy_string(server);
-  j->ssl = ssl;
-  j->ca = copy_string(ca);
+  j->tls = tls->tag;
+  j->ca = tls->tag == uw_Urmail_Tls ? copy_string(tls->data.uw_Tls) : NULL;
   j->user = copy_string(user);
   j->password = copy_string(password);
   j->body = copy_long_string(ctx, body);

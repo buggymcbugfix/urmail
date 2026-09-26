@@ -20,7 +20,13 @@ fun sendMail r =
         val html = if r.Html = "" then None
                    else Some <xml><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p></xml>
     in
-        Urmail.send r.Server (r.Ssl = "1") (if r.Ca = "" then None else Some r.Ca)
+        Urmail.send r.Server
+                    (case r.Tls of
+                         "none" => Urmail.Plain
+                       | "starttls" => Urmail.Tls None
+                       | "starttls-ca" => Urmail.Tls (Some r.Ca)
+                       | "starttls-noverify" => Urmail.TlsNoVerify
+                       | _ => error <xml>bad Tls field</xml>)
                     r.User r.Password h r.Body html;
         return <xml><body>sent</body></xml>
     end
@@ -29,7 +35,7 @@ fun sendMail r =
    directly. *)
 fun main () : transaction page = return <xml><body>
   <form>
-    <textbox{#Server}/> <textbox{#Ssl}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
+    <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
     <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
     <textarea{#Body}/> <textbox{#Html}/>
     <submit action={sendMail}/>
