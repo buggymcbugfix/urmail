@@ -17,6 +17,8 @@ fun sendMail r =
                     |> addrs Urmail.cc r.Cc
                     |> addrs Urmail.bcc r.Bcc
                     |> (fn h => if r.Subject = "" then h else Urmail.subject r.Subject h)
+                    |> (fn h => if r.MessageId = "" then h else Urmail.messageId r.MessageId h)
+                    |> (fn h => if r.UserAgent = "" then h else Urmail.user_agent r.UserAgent h)
         val html = if r.Html = "" then None
                    else Some <xml><body><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p></body></xml>
     in
@@ -37,7 +39,7 @@ fun main () : transaction page = return <xml><body>
   <form>
     <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
     <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
-    <textarea{#Body}/> <textbox{#Html}/>
+    <textarea{#Body}/> <textbox{#Html}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
     <submit action={sendMail}/>
   </form>
 </body></xml>

@@ -1,0 +1,4 @@
+# A Message-ID that is not <left@right> is refused.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret MessageId="order-42")
