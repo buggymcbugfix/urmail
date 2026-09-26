@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: outcome unknown: connection lost after the message was sent: Failure when receiving data from the peer
-</body></html>
+--- status
+MaybeSent: connection lost after the message was sent: Failure when receiving data from the peer
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -32,4 +31,3 @@ MESSAGE:
 END
 (server closed the connection)
 --- application log
-Fatal error: urmail: outcome unknown: connection lost after the message was sent: Failure when receiving data from the peer

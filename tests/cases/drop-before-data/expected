@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: Failure when receiving data from the peer
-</body></html>
+--- status
+NotSent: Failure when receiving data from the peer
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -19,4 +18,3 @@ S: 250 ok
 C: DATA
 (server closed the connection)
 --- application log
-Fatal error: urmail: not sent: Failure when receiving data from the peer

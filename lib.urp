@@ -1,3 +1,7 @@
 library config
-ffi urmail
-effectful Urmail.send
+ffi urmailFfi
+effectful UrmailFfi.send
+
+$/list
+$/option
+urmail

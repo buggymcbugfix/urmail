@@ -1,5 +1,7 @@
 library ..
-rewrite url Test/*
+rewrite url Queue/*
 prefix http://localhost:8080/
 
-test
+$/list
+$/option
+queue

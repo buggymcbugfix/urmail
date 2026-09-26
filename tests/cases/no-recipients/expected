@@ -1,7 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: No recipients specified for e-mail message
-</body></html>
+--- check
+refused: No recipients specified for e-mail message
 --- server
 (no client connected)
 --- application log
-Fatal error: No recipients specified for e-mail message

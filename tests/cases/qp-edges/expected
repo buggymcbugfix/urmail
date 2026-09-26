@@ -1,5 +1,5 @@
-HTTP 200
-<!DOCTYPE html><html><head></head><body>sent</body></html>
+--- status
+Sent
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

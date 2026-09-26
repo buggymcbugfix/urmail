@@ -1,5 +1,9 @@
 library ..
+allow url /Test/status
+safeGet Test/status
+minHeap 65536
 
 $/list
 $/string
+$/option
 test

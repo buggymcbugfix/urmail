@@ -1,7 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: Empty e-mail address
-</body></html>
+--- check
+refused: Empty e-mail address
 --- server
 (no client connected)
 --- application log
-Fatal error: Empty e-mail address

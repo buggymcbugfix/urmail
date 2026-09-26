@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: SSL peer certificate or SSH remote key was not OK
-</body></html>
+--- status
+NotSent: SSL peer certificate or SSH remote key was not OK
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -13,4 +12,3 @@ S: 220 go ahead
 (TLS established)
 (client closed the connection)
 --- application log
-Fatal error: urmail: not sent: SSL peer certificate or SSH remote key was not OK

@@ -1,4 +1,5 @@
-# An empty string as an address (here: two of them).
+# An empty string as an address (here: two of them) is refused.
+api=check
 mode=accept
 tls=none
 form=(From=alice@example.com To="," Subject=Hello Body=$'Hi\n' User=alice Password=secret)

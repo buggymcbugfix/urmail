@@ -1,6 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: server refused: Weird server reply (SMTP 554)
-</body></html>
+--- status
+NotSent: server refused: Weird server reply (SMTP 554)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -34,4 +33,3 @@ S: 554 rejected
 C: QUIT
 S: 221 bye
 --- application log
-Fatal error: urmail: not sent: server refused: Weird server reply (SMTP 554)

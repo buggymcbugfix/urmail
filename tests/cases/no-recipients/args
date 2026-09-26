@@ -1,4 +1,5 @@
 # No recipient at all: refused before anything is sent.
+api=check
 mode=accept
 tls=none
 form=(From=alice@example.com Subject=Hello Body=$'Hi\n' User=alice Password=secret)

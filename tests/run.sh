@@ -13,12 +13,16 @@
 #               starttls, starttls-ca, starttls-noverify: what the client is
 #               told), form=(...) (the fields of the request, curl -d style),
 #               sends=N (the request is made N times; the server then
-#               serves up to N sessions)
-#   expected    the transcript: the HTTP status and body, the server's
-#               transcript, then the application's log
+#               serves up to N sessions), api=io|check (the message is
+#               queued and sent by the application's io task, the default,
+#               or only checked by Urmail.mkHeaders; the transcript's first
+#               part is the statuses the task recorded, or what mkHeaders said)
+#   expected    the transcript: the statuses or mkHeaders's verdict, the
+#               server's transcript, then the application's log
 #
 # The compiler is the one URWEB names, run with the flags in URWEB_FLAGS if
-# set, or else `urweb` on the PATH.  Needs python3, openssl and curl.  The
+# set, or else `urweb` on the PATH.  Needs python3, openssl, curl and sqlite3
+# (the application keeps its queue in a database, fresh for every case).  The
 # library must have been built (tests/config.urp names it).  Exit status: 0
 # every case passed, 1 some failed, 2 could not run.
 
@@ -35,7 +39,7 @@ if [ "${1:-}" = "-u" ]; then update=1; shift; fi
 
 die() { echo "run.sh: $*" >&2; exit 2; }
 
-for tool in python3 openssl curl; do
+for tool in python3 openssl curl sqlite3; do
   command -v "$tool" >/dev/null || die "$tool is needed"
 done
 command -v "$urweb" >/dev/null || die "no urweb: set URWEB or put it on the PATH"
@@ -63,8 +67,9 @@ for ex in "$top"/examples/*.urp; do
     > "$out/examples.log" 2>&1 || { cat "$out/examples.log" >&2; die "example $(basename "$ex") does not typecheck"; }
 done
 
-# The application, built once.
-( cd "$here/app" && rm -f test.exe && "$urweb" $urweb_flags -protocol http test ) \
+# The application, built once; its database is created afresh for each case.
+( cd "$here/app" && rm -f test.exe && "$urweb" $urweb_flags -protocol http -dbms sqlite \
+    -db "$out/app.db" -sql "$out/app.sql" test ) \
   > "$out/build.log" 2>&1 || { cat "$out/build.log" >&2; die "the test application failed to build"; }
 
 # Replace what varies from run to run.
@@ -82,7 +87,7 @@ failed=0
 for case in "${cases[@]}"; do
   dir=$here/cases/$case
   [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=(); sends=1
+  mode=accept; tls=none; form=(); sends=1; api=io
   # shellcheck disable=SC1090
   . "$dir/args"
   work=$out/$case
@@ -104,9 +109,10 @@ for case in "${cases[@]}"; do
     smtp_port=$(cat "$work/port")
   fi
 
-  # The application, fresh for every case so that its log is the case's.
-  # -d3 prints pid=, port= and status= on fd 3 once it listens.
-  eval "$( URMAIL_TIMEOUT=2 "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
+  # The application, fresh for every case so that its log and its queue are
+  # the case's.  -d3 prints pid=, port= and status= on fd 3 once it listens.
+  sqlite3 "$work/app.db" < "$out/app.sql" >/dev/null   # a PRAGMA in there prints its value
+  eval "$( URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
   if [ "${status:-}" != OK ]; then
     echo "$case: the test application did not start" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
   fi
@@ -127,19 +133,40 @@ for case in "${cases[@]}"; do
     done
     curl_args+=(--data-urlencode "$f=$v")
   done
+  case $api in
+    io) handler=queue ;;
+    check) handler=check ;;
+    *) die "$case: unknown api $api" ;;
+  esac
   http=
   for _ in $(seq "$sends"); do
-    http="$http$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/sendMail") "
+    http="$http$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler") "
   done
+  if [ "$api" = io ]; then
+    # The task sends within a second of the request; wait for as many
+    # statuses as there were requests (a hung server takes the timeout).
+    for _ in $(seq 300); do
+      curl -s -o "$work/status" "http://127.0.0.1:$app_port/Test/status"
+      [ "$(grep -o '<br />' "$work/status" | wc -l)" -ge "$sends" ] && break
+      sleep 0.1
+    done
+  fi
 
   # The application first: it keeps the connection open for the next message,
   # and the server's session ends when it goes.
   kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null
   [ -n "$srv_pid" ] && wait "$srv_pid"
 
+  # Pages as text: one line per <br />, without the markup and escaping.
+  text() { sed -e 's#<br />#\n#g' -e 's#<[^>]*>##g' -e 's#&lt;#<#g' -e 's#&gt;#>#g' -e 's#&amp;#\&#g' "$1" | grep -v '^$'; }
   {
-    echo "HTTP ${http% }"
-    cat "$work/body"; echo
+    if [ "$api" = io ]; then
+      echo "--- status"
+      text "$work/status"
+    else
+      echo "--- check"
+      text "$work/body"
+    fi
     echo "--- server"
     cat "$work/transcript"
     echo "--- application log"

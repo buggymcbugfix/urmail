@@ -1,8 +1,6 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: Timeout was reached
-</body></html>
+--- status
+NotSent: Timeout was reached
 --- server
 S: 220 fake.test ESMTP
 (client closed the connection)
 --- application log
-Fatal error: urmail: not sent: Timeout was reached

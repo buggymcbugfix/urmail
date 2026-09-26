@@ -1,5 +1,6 @@
-HTTP 200 200
-<!DOCTYPE html><html><head></head><body>sent</body></html>
+--- status
+Sent
+Sent
 --- server
 --- session 1
 S: 220 fake.test ESMTP

@@ -1,4 +1,5 @@
 # A newline in a header value must be refused.
+api=check
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=$'Hello\r\nBcc: eve@example.org' Body=$'Hi\n' User=alice Password=secret)

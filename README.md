@@ -2,7 +2,14 @@ urmail: sending e-mail from Ur/Web
 ==================================
 
 An Ur/Web library that sends a message through an SMTP server, over
-libcurl.  `urmail.urs` is the interface.
+libcurl.  `urmail.urs` is the interface: `mkHeaders` checks the addresses
+and header values of a message and `send`, from an io task, sends it and
+says what became of it (sent, not sent, or maybe sent).  Sending is not
+something a transaction can undo, so there is no sending from one: a
+request handler queues the message in a table, and a periodic task in io
+claims it in one transaction, sends, and records the status in another.
+`tests/app/test.ur` is such an application.  Needs an Ur/Web with the `io`
+monad.
 
 Building
 --------
@@ -43,8 +50,8 @@ with the case's `expected` file.  A case is a directory under `tests/cases`
 with an `args` file describing the server's behaviour, the TLS setting and
 the message; `-u` rewrites the expected files.  `URWEB` names the compiler
 to use (with the flags in `URWEB_FLAGS`), otherwise the one on the PATH.
-The runner needs python3, openssl (a self-signed certificate for STARTTLS)
-and curl.
+The runner needs python3, openssl (a self-signed certificate for STARTTLS),
+curl and sqlite3 (the application's queue).
 
 Debugging
 ---------
