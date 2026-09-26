@@ -18,7 +18,7 @@ fun sendMail r =
                     |> addrs Urmail.bcc r.Bcc
                     |> (fn h => if r.Subject = "" then h else Urmail.subject r.Subject h)
         val html = if r.Html = "" then None
-                   else Some <xml><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p></xml>
+                   else Some <xml><body><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p></body></xml>
     in
         Urmail.send r.Server
                     (case r.Tls of
