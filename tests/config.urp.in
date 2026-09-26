@@ -1,0 +1,3 @@
+include @abs_top_srcdir@/urmail.h
+link @abs_top_builddir@/.libs/liburmail.a
+link @LIBCURL_LIBDIR@/libcurl.@SHLIB_EXT@
