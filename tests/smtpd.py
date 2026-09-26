@@ -4,8 +4,8 @@
     smtpd.py --transcript FILE [--mode MODE] [--cert PEM --key PEM] [--port-file FILE]
 
 It listens on 127.0.0.1 at a free port, writes the port to --port-file (or
-stdout) once listening, serves exactly one session, writes the transcript
-and exits.  The transcript has one line per command and reply, `C: ...` and
+stdout) once listening, serves one session (--sessions N: up to N, one after
+the other, each headed in the transcript), writes the transcript and exits.  The transcript has one line per command and reply, `C: ...` and
 `S: ...`, and the message as delivered under `MESSAGE:`, one line per CRLF
 line; a CR or LF that is not part of a CRLF shows up as \\r or \\n.  The
 credentials of an AUTH PLAIN are decoded so that they can be read.
@@ -13,6 +13,8 @@ credentials of an AUTH PLAIN are decoded so that they can be read.
 The modes:
 
     accept            everything succeeds (the default)
+    close-after-one   the connection is closed after the first message is
+                      accepted, as a server that limits a session would
     reject-rcpt       every RCPT TO is refused with 550
     reject-data       the message is read in full and then refused with 554
     drop-after-data   the message is read in full and the connection is
@@ -172,6 +174,9 @@ class Session:
                     self.reply("554 rejected")
                 else:
                     self.reply("250 queued")
+                if self.mode == "close-after-one":
+                    self.log("(server closed the connection)")
+                    return
             elif verb == "RSET":
                 self.reply("250 ok")
             elif verb == "NOOP":
@@ -192,6 +197,8 @@ def main():
     ap.add_argument("--port-file")
     ap.add_argument("--timeout", type=float, default=20.0,
                     help="give up waiting for the client after this many seconds")
+    ap.add_argument("--sessions", type=int, default=1,
+                    help="serve up to this many sessions, one after the other")
     args = ap.parse_args()
 
     sslctx = None
@@ -212,17 +219,25 @@ def main():
         print(port, flush=True)
 
     transcript = []
-    try:
-        conn, _ = lsock.accept()
-    except socket.timeout:
-        transcript.append("(no client connected)")
-    else:
+    for n in range(args.sessions):
+        if args.sessions > 1:
+            transcript.append("--- session %d" % (n + 1))
+        try:
+            conn, _ = lsock.accept()
+        except socket.timeout:
+            transcript.append("(no client connected)")
+            break
         conn.settimeout(args.timeout)
         session = Session(conn, args.mode, sslctx, transcript)
         try:
             session.run()
-        except (ssl.SSLError, ConnectionError, socket.timeout) as e:
-            transcript.append("(connection error)")
+        except ssl.SSLError:
+            transcript.append("(TLS error)")
+        except ConnectionError:
+            # A reset reads like an orderly close: the client went away.
+            transcript.append("(client closed the connection)")
+        except socket.timeout:
+            transcript.append("(timed out waiting for the client)")
         finally:
             try:
                 session.conn.close()

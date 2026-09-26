@@ -1,5 +1,5 @@
 HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: Weird server reply
+<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: server refused: Weird server reply (SMTP 554)
 </body></html>
 --- server
 S: 220 fake.test ESMTP
@@ -34,4 +34,4 @@ S: 554 rejected
 C: QUIT
 S: 221 bye
 --- application log
-Fatal error: Curl error sending e-mail: Weird server reply
+Fatal error: urmail: not sent: server refused: Weird server reply (SMTP 554)

@@ -1,5 +1,5 @@
 HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: Failed sending data to the peer
+<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: server refused: Failed sending data to the peer (SMTP 550)
 </body></html>
 --- server
 S: 220 fake.test ESMTP
@@ -19,4 +19,4 @@ S: 550 no such user
 C: QUIT
 S: 221 bye
 --- application log
-Fatal error: Curl error sending e-mail: Failed sending data to the peer
+Fatal error: urmail: not sent: server refused: Failed sending data to the peer (SMTP 550)

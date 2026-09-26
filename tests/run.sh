@@ -11,7 +11,9 @@
 #
 #   args        shell lines: mode=... (smtpd.py's mode), tls=... (none,
 #               starttls, starttls-ca, starttls-noverify: what the client is
-#               told), form=(...) (the fields of the request, curl -d style)
+#               told), form=(...) (the fields of the request, curl -d style),
+#               sends=N (the request is made N times; the server then
+#               serves up to N sessions)
 #   expected    the transcript: the HTTP status and body, the server's
 #               transcript, then the application's log
 #
@@ -74,26 +76,33 @@ failed=0
 for case in "${cases[@]}"; do
   dir=$here/cases/$case
   [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=()
+  mode=accept; tls=none; form=(); sends=1
   # shellcheck disable=SC1090
   . "$dir/args"
   work=$out/$case
   mkdir -p "$work"
 
-  # The server, with STARTTLS on offer unless the case says otherwise.
-  srv_args=(--transcript "$work/transcript" --mode "$mode" --port-file "$work/port")
-  [ "$mode" != no-starttls ] && srv_args+=(--cert "$out/cert.pem" --key "$out/key.pem")
-  python3 "$here/smtpd.py" "${srv_args[@]}" 2> "$work/smtpd.err" &
-  srv_pid=$!
-  for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
-  [ -s "$work/port" ] || { echo "$case: the fake server did not start" >&2; cat "$work/smtpd.err" >&2; failed=1; continue; }
-  smtp_port=$(cat "$work/port")
+  # The server, with STARTTLS on offer unless the case says otherwise; or,
+  # with mode=none, no server: a port nothing listens on.
+  if [ "$mode" = none ]; then
+    srv_pid=
+    smtp_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+    echo "(no server)" > "$work/transcript"
+  else
+    srv_args=(--transcript "$work/transcript" --mode "$mode" --port-file "$work/port" --sessions "$sends")
+    [ "$mode" != no-starttls ] && srv_args+=(--cert "$out/cert.pem" --key "$out/key.pem")
+    python3 "$here/smtpd.py" "${srv_args[@]}" 2> "$work/smtpd.err" &
+    srv_pid=$!
+    for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
+    [ -s "$work/port" ] || { echo "$case: the fake server did not start" >&2; cat "$work/smtpd.err" >&2; failed=1; continue; }
+    smtp_port=$(cat "$work/port")
+  fi
 
   # The application, fresh for every case so that its log is the case's.
   # -d3 prints pid=, port= and status= on fd 3 once it listens.
-  eval "$( "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
+  eval "$( URMAIL_TIMEOUT=2 "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
   if [ "${status:-}" != OK ]; then
-    echo "$case: the test application did not start" >&2; failed=1; kill "$srv_pid" 2>/dev/null; continue
+    echo "$case: the test application did not start" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
   fi
   app_pid=$pid; app_port=$port
 
@@ -112,13 +121,18 @@ for case in "${cases[@]}"; do
     done
     curl_args+=(--data-urlencode "$f=$v")
   done
-  http=$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/sendMail")
+  http=
+  for _ in $(seq "$sends"); do
+    http="$http$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/sendMail") "
+  done
 
-  wait "$srv_pid"
+  # The application first: it keeps the connection open for the next message,
+  # and the server's session ends when it goes.
   kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null
+  [ -n "$srv_pid" ] && wait "$srv_pid"
 
   {
-    echo "HTTP $http"
+    echo "HTTP ${http% }"
     cat "$work/body"; echo
     echo "--- server"
     cat "$work/transcript"
