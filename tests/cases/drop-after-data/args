@@ -1,0 +1,5 @@
+# The connection dies after the message went out, before the reply: the
+# client cannot know whether it was delivered.
+mode=drop-after-data
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

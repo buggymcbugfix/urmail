@@ -1,0 +1,12 @@
+HTTP 500
+<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: Requested SSL level failed
+</body></html>
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+(client closed the connection)
+--- application log
+Fatal error: Curl error sending e-mail: Requested SSL level failed

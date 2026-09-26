@@ -1,0 +1,4 @@
+# Text and HTML parts.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Plain text\n' Html=world User=alice Password=secret)

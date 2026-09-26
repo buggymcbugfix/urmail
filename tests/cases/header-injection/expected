@@ -1,0 +1,7 @@
+HTTP 500
+<html><head><title>Fatal Error</title></head><body>Fatal error: Header value contains newline
+</body></html>
+--- server
+(no client connected)
+--- application log
+Fatal error: Header value contains newline
