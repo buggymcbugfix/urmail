@@ -19,31 +19,6 @@ static uw_Basis_string copy_string(uw_Basis_string s) {
     return strdup(s);
 }
 
-// Some values are expected to be long enough that they might exceed SMTP's limit on line length.
-// Let's at least make sure that the line breaks are clear to SMTP,
-// by changing bare '\n' into "\r\n".
-static uw_Basis_string copy_long_string(uw_context ctx, uw_Basis_string s) {
-  uw_Basis_string copy, in, out;
-  int last_was_cr = 0;
-  
-  if (s == NULL)
-    return NULL;
-
-  copy = uw_malloc(ctx, 2 * strlen(s) + 1);
-  out = copy;
-  for (in = s; *in; ++in) {
-    if (*in == '\n' && !last_was_cr) {
-      *out++ = '\r';
-      *out++ = '\n';
-    } else
-      *out++ = *in;
-    last_was_cr = (*in == '\r');
-  }
-  *out = 0;
-
-  return strdup(copy);
-}
-
 static void free_string(uw_Basis_string s) {
   if (s == NULL)
     return;
@@ -208,8 +183,10 @@ uw_Urmail_headers uw_Urmail_user_agent(uw_context ctx, uw_Basis_string s, uw_Urm
 typedef struct {
   uw_context ctx;
   uw_Urmail_headers h;
-  uw_Basis_string server, ca, user, password, body, xbody;
+  uw_Basis_string server, ca, user, password;
   enum uw_Urmail_tls_tag tls;
+  char *message;   // the message as it goes over the wire, assembled at the call
+  size_t length;
 } job;
 
 typedef struct {
@@ -246,132 +223,118 @@ static char *addrOf(char *s) {
     return s;
 }
 
+/* ---- A growable byte buffer for assembling the message.  malloc-based, so
+   that the message can live in the job until the transaction commits. ---- */
+
+typedef struct {
+  char *s;
+  size_t len, cap;
+} buf;
+
+static void buf_reserve(uw_context ctx, buf *b, size_t extra) {
+  if (b->len + extra + 1 > b->cap) {
+    size_t cap = b->cap ? b->cap : 1024;
+    while (b->len + extra + 1 > cap)
+      cap *= 2;
+    char *s = realloc(b->s, cap);
+    if (!s) {
+      free(b->s);
+      uw_error(ctx, FATAL, "urmail: out of memory assembling the message");
+    }
+    b->s = s;
+    b->cap = cap;
+  }
+}
+
+static void buf_append(uw_context ctx, buf *b, const char *s, size_t n) {
+  buf_reserve(ctx, b, n);
+  memcpy(b->s + b->len, s, n);
+  b->len += n;
+  b->s[b->len] = 0;
+}
+
+static void buf_str(uw_context ctx, buf *b, const char *s) {
+  buf_append(ctx, b, s, strlen(s));
+}
+
+// The lines of a message end in CRLF; a bare LF in a body is turned into one.
+static void buf_text(uw_context ctx, buf *b, const char *s) {
+  int last_was_cr = 0;
+  for (; *s; ++s) {
+    if (*s == '\n' && !last_was_cr)
+      buf_append(ctx, b, "\r\n", 2);
+    else
+      buf_append(ctx, b, s, 1);
+    last_was_cr = (*s == '\r');
+  }
+}
+
+// A MIME boundary that occurs in neither part.
+static void boundary(const char *body, const char *xbody, char out[11]) {
+  out[10] = 0;
+  do {
+    int i;
+    for (i = 0; i < 10; ++i)
+      out[i] = 'A' + (rand() % 26);
+  } while (strstr(body, out) || (xbody && strstr(xbody, out)));
+}
+
+// Assemble the message: headers, then the text body, or a multipart/alternative
+// of the text body and the HTML document.  `xbody` is the string of a `page`
+// value, which is the document's contents without the html element (the
+// runtime adds that when it serves a page), hence the wrapper.
+static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
+                     uw_Basis_string body, uw_Basis_string xbody) {
+  if (h->from) {
+    buf_str(ctx, b, "From: "); buf_str(ctx, b, h->from); buf_str(ctx, b, "\r\n");
+  }
+  if (h->subject) {
+    buf_str(ctx, b, "Subject: "); buf_str(ctx, b, h->subject); buf_str(ctx, b, "\r\n");
+  }
+  if (h->to) {
+    buf_str(ctx, b, "To: "); buf_str(ctx, b, h->to); buf_str(ctx, b, "\r\n");
+  }
+  if (h->cc) {
+    buf_str(ctx, b, "Cc: "); buf_str(ctx, b, h->cc); buf_str(ctx, b, "\r\n");
+  }
+  if (h->user_agent) {
+    buf_str(ctx, b, "User-Agent: "); buf_str(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
+  }
+
+  if (xbody) {
+    char sep[11];
+    boundary(body, xbody, sep);
+
+    buf_str(ctx, b, "MIME-Version: 1.0\r\n"
+                    "Content-Type: multipart/alternative; boundary=\"");
+    buf_str(ctx, b, sep);
+    buf_str(ctx, b, "\"\r\n\r\n--");
+    buf_str(ctx, b, sep);
+    buf_str(ctx, b, "\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n");
+    buf_text(ctx, b, body);
+    buf_str(ctx, b, "\r\n--");
+    buf_str(ctx, b, sep);
+    buf_str(ctx, b, "\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+                    "<!DOCTYPE html><html>");
+    buf_text(ctx, b, xbody);
+    buf_str(ctx, b, "</html>\r\n--");
+    buf_str(ctx, b, sep);
+    buf_str(ctx, b, "--");
+  } else {
+    buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n\r\n");
+    buf_text(ctx, b, body);
+  }
+}
+
 static void commit(void *data) {
   job *j = data;
-  char *buf, *cur;
-  size_t buflen = 50;
   CURL *curl;
   CURLcode res;
   upload_status upload_ctx;
   struct curl_slist *recipients = NULL;
 
-  buflen += 8 + strlen(j->h->from);
-  if (j->h->to)
-    buflen += 6 + strlen(j->h->to);
-  if (j->h->cc)
-    buflen += 6 + strlen(j->h->cc);
-  if (j->h->bcc)
-    buflen += 7 + strlen(j->h->bcc);
-  if (j->h->subject)
-    buflen += 11 + strlen(j->h->subject);
-  if (j->h->user_agent)
-    buflen += 14 + strlen(j->h->user_agent);
-  buflen += strlen(j->body);
-  if (j->xbody)
-    buflen += 219 + strlen(j->xbody);
-
-  cur = buf = malloc(buflen);
-  if (!buf) {
-    uw_set_error_message(j->ctx, "Can't allocate buffer for message contents");
-    return;
-  }
-
-  if (j->h->from) {
-    int written = sprintf(cur, "From: %s\r\n", j->h->from);
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing From address");
-      free(buf);
-      return;
-    } else
-      cur += written;
-  }
-
-  if (j->h->subject) {
-    int written = sprintf(cur, "Subject: %s\r\n", j->h->subject);
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing Subject");
-      free(buf);
-      return;
-    } else
-      cur += written;
-  }
-  
-  if (j->h->to) {
-    int written = sprintf(cur, "To: %s\r\n", j->h->to);
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing To addresses");
-      free(buf);
-      return;
-    } else
-      cur += written;
-  }
-
-  if (j->h->cc) {
-    int written = sprintf(cur, "Cc: %s\r\n", j->h->cc);
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing Cc addresses");
-      free(buf);
-      return;
-    } else
-      cur += written;
-  }
-
-  if (j->h->user_agent) {
-    int written = sprintf(cur, "User-Agent: %s\r\n", j->h->user_agent);
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing User-Agent");
-      free(buf);
-      return;
-    } else
-      cur += written;
-  }
-
-  if (j->xbody) {
-    int written;
-    char separator[11];
-    separator[sizeof(separator)-1] = 0;
-
-    do {
-      int i;
-
-      for (i = 0; i < sizeof(separator)-1; ++i)
-        separator[i] = 'A' + (rand() % 26);
-    } while (strstr(j->body, separator) || strstr(j->xbody, separator));
-
-    written = sprintf(cur, "MIME-Version: 1.0\r\n"
-                      "Content-Type: multipart/alternative; boundary=\"%s\"\r\n"
-                      "\r\n"
-                      "--%s\r\n"
-                      "Content-Type: text/plain; charset=utf-8\r\n"
-                      "\r\n"
-                      "%s\r\n"
-                      "--%s\r\n"
-                      "Content-Type: text/html; charset=utf-8\r\n"
-                      "\r\n"
-                      "%s\r\n"
-                      "--%s--",
-                      separator, separator, j->body, separator, j->xbody, separator);
-
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing bodies, including HTML");
-      free(buf);
-      return;
-    }
-  } else {
-    int written = sprintf(cur, "Content-Type: text/plain; charset=utf-8\r\n"
-                          "\r\n"
-                          "%s",
-                          j->body);
-
-    if (written < 0) {
-      uw_set_error_message(j->ctx, "Error writing body");
-      free(buf);
-      return;
-    }
-  }
-
-  upload_ctx.content = buf;
-  upload_ctx.length = strlen(buf);
+  upload_ctx.content = j->message;
+  upload_ctx.length = j->length;
 
   if (j->h->to) {
     char *saveptr, *addr = strtok_r(j->h->to, ",", &saveptr);
@@ -396,10 +359,9 @@ static void commit(void *data) {
         recipients = curl_slist_append(recipients, addrOf(addr));
       } while ((addr = strtok_r(NULL, ",", &saveptr)));
   }
-  
+
   curl = curl_easy_init();
   if (!curl) {
-    free(buf);
     uw_set_error_message(j->ctx, "Can't create curl object");
     return;
   }
@@ -439,7 +401,6 @@ static void commit(void *data) {
 
   curl_slist_free_all(recipients);
   curl_easy_cleanup(curl);
-  free(buf);
 }
 
 static void free_job(void *p, int will_retry) {
@@ -450,8 +411,7 @@ static void free_job(void *p, int will_retry) {
   free_string(j->ca);
   free_string(j->user);
   free_string(j->password);
-  free_string(j->body);
-  free_string(j->xbody);
+  free(j->message);
   free(j);
 }
 
@@ -459,12 +419,17 @@ uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server, uw_Urmail_tls tls
                      uw_Basis_string user, uw_Basis_string password,
                      uw_Urmail_headers h, uw_Basis_string body, uw_Basis_string xbody) {
   job *j;
+  buf b = {NULL, 0, 0};
 
   if (!h || !h->from)
     uw_error(ctx, FATAL, "No From address set for e-mail message");
 
   if (!h->to && !h->cc && !h->bcc)
     uw_error(ctx, FATAL, "No recipients specified for e-mail message");
+
+  // Everything that can fail happens here, in the transaction, where an error
+  // is an error of the request; the commit callback only talks to the server.
+  assemble(ctx, &b, h, body, xbody);
 
   j = malloc(sizeof(job));
 
@@ -475,10 +440,13 @@ uw_unit uw_Urmail_send(uw_context ctx, uw_Basis_string server, uw_Urmail_tls tls
   j->ca = tls->tag == uw_Urmail_Tls ? copy_string(tls->data.uw_Tls) : NULL;
   j->user = copy_string(user);
   j->password = copy_string(password);
-  j->body = copy_long_string(ctx, body);
-  j->xbody = copy_long_string(ctx, xbody);
+  j->message = b.s;
+  j->length = b.len;
 
-  uw_register_transactional(ctx, j, commit, NULL, free_job);
+  if (uw_register_transactional(ctx, j, commit, NULL, free_job)) {
+    free_job(j, 0);
+    uw_error(ctx, FATAL, "urmail: too many transactionals registered");
+  }
 
   return uw_unit_v;
 }
