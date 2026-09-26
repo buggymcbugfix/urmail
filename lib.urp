@@ -1,4 +1,3 @@
+library config
 ffi urmail
-include urmail.h
-link -lurmail -lcurl
 effectful Urmail.send

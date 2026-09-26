@@ -1,8 +1,10 @@
+#include "config.h"
 #include <string.h>
 #include <stdlib.h>
 #include <curl/curl.h>
 
 #include <urweb/urweb.h>
+#include "urmail.h"
 
 struct headers {
   uw_Basis_string from, to, cc, bcc, subject, user_agent;
