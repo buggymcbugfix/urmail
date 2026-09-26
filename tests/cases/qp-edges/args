@@ -1,0 +1,5 @@
+# Quoted-printable edge cases: '=' and '.', trailing whitespace, CRLF input,
+# a tab, a line of exactly the limit.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=QP Body=$'a=b\n.hidden dot\ntrailing space \r\nwindows line\r\n\ttabbed\n123456789012345678901234567890123456789012345678901234567890123456789012345\n1234567890123456789012345678901234567890123456789012345678901234567890123456\nno final newline' User=alice Password=secret)
