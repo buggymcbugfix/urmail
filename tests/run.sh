@@ -57,6 +57,12 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
   -addext subjectAltName=IP:127.0.0.1 \
   -keyout "$out/key.pem" -out "$out/cert.pem" >/dev/null 2>&1 || die "openssl failed"
 
+# The examples must at least typecheck against the signature.
+for ex in "$top"/examples/*.urp; do
+  ( cd "$(dirname "$ex")" && "$urweb" $urweb_flags -tc "$(basename "$ex" .urp)" ) \
+    > "$out/examples.log" 2>&1 || { cat "$out/examples.log" >&2; die "example $(basename "$ex") does not typecheck"; }
+done
+
 # The application, built once.
 ( cd "$here/app" && rm -f test.exe && "$urweb" $urweb_flags -protocol http test ) \
   > "$out/build.log" 2>&1 || { cat "$out/build.log" >&2; die "the test application failed to build"; }

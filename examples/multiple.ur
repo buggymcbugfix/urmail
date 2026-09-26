@@ -1,7 +1,7 @@
 val server = "smtp://you.com:465"
 val user = "you"
 val password = "pass"
-val send = Urmail.send server True None user password
+val send = Urmail.send server (Urmail.Tls None) user password
 
 fun solicitText (user : string) : transaction string
   = key <- rand;
