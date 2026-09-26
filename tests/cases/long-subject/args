@@ -1,0 +1,4 @@
+# An ASCII subject longer than a line, and a display name that needs quoting.
+mode=accept
+tls=none
+form=(From="Shop (Orders) <shop@example.com>" To="Dr. O'Brien <ob@example.net>" Subject="This is a rather long subject line that will not fit into the seventy-six characters a header line should keep to" Body=$'Hi\n' User=alice Password=secret)

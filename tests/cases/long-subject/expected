@@ -1,0 +1,35 @@
+HTTP 200
+<!DOCTYPE html><html><head></head><body>sent</body></html>
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 235 ok
+C: MAIL FROM:<shop@example.com>
+S: 250 ok
+C: RCPT TO:<ob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: "Shop (Orders)" <shop@example.com>
+| Subject: =?UTF-8?B?VGhpcyBpcyBhIHJhdGhlciBsb25nIHN1YmplY3QgbGluZSB0aGF0IHdpbGwg?=
+|  =?UTF-8?B?bm90IGZpdCBpbnRvIHRoZSBzZXZlbnR5LXNpeCBjaGFyYWN0ZXJzIGEgaGVh?=
+|  =?UTF-8?B?ZGVyIGxpbmUgc2hvdWxkIGtlZXAgdG8=?=
+| To: "Dr. O'Brien" <ob@example.net>
+| Content-Type: text/plain; charset=utf-8
+|
+| Hi
+END
+S: 250 queued
+C: QUIT
+S: 221 bye
+--- application log

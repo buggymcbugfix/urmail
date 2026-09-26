@@ -28,7 +28,8 @@ MESSAGE:
 | Message-ID: <generated@example.com>
 | From: Alice <alice@example.com>
 | Subject: Hello
-| To: Bob <bob@example.net>,carol@example.net
+| To: Bob <bob@example.net>,
+|  carol@example.net
 | Cc: dave@example.org
 | Content-Type: text/plain; charset=utf-8
 |

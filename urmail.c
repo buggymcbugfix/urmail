@@ -54,8 +54,11 @@ static void free_headers(uw_Urmail_headers h) {
 
 uw_Urmail_headers uw_Urmail_empty = NULL;
 
+// A header value may be anything but a line break; long or non-ASCII values
+// are encoded and folded when the message is assembled (RFC 2047 and 5322).
+// The limit is generous but there has to be one: it bounds the buffers.
 static void header(uw_context ctx, uw_Basis_string s) {
-  if (strlen(s) > 100)
+  if (strlen(s) > 2000)
     uw_error(ctx, FATAL, "Header value too long");
 
   for (; *s; ++s)
@@ -308,6 +311,132 @@ static void boundary(const char *body, const char *xbody, char out[11]) {
   } while (strstr(body, out) || (xbody && strstr(xbody, out)));
 }
 
+/* ---- Header encoding: RFC 2047 encoded-words for what is not ASCII, and
+   folding for what is long. ---- */
+
+static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void buf_base64(uw_context ctx, buf *b, const unsigned char *s, size_t n) {
+  size_t i;
+  for (i = 0; i + 2 < n; i += 3) {
+    char q[4] = {b64[s[i] >> 2], b64[((s[i] & 3) << 4) | (s[i+1] >> 4)],
+                 b64[((s[i+1] & 15) << 2) | (s[i+2] >> 6)], b64[s[i+2] & 63]};
+    buf_append(ctx, b, q, 4);
+  }
+  if (i + 1 == n) {
+    char q[4] = {b64[s[i] >> 2], b64[(s[i] & 3) << 4], '=', '='};
+    buf_append(ctx, b, q, 4);
+  } else if (i + 2 == n) {
+    char q[4] = {b64[s[i] >> 2], b64[((s[i] & 3) << 4) | (s[i+1] >> 4)],
+                 b64[(s[i+1] & 15) << 2], '='};
+    buf_append(ctx, b, q, 4);
+  }
+}
+
+static int is_ascii_text(const char *s) {
+  for (; *s; ++s)
+    if ((unsigned char)*s >= 0x80 || ((unsigned char)*s < 0x20 && *s != '\t'))
+      return 0;
+  return 1;
+}
+
+// `s` as a sequence of encoded-words, each of at most 75 characters and
+// holding whole UTF-8 characters, folded onto continuation lines.
+static void buf_encoded_words(uw_context ctx, buf *b, const char *s) {
+  size_t n = strlen(s), i = 0;
+  int first = 1;
+  while (i < n) {
+    // Up to 45 bytes (60 base64 characters, 72 with the wrapping), cut at a
+    // character boundary: a continuation byte is 10xxxxxx.
+    size_t len = n - i < 45 ? n - i : 45;
+    while (len > 1 && i + len < n && ((unsigned char)s[i+len] & 0xC0) == 0x80)
+      --len;
+    if (!first)
+      buf_str(ctx, b, "\r\n ");
+    buf_str(ctx, b, "=?UTF-8?B?");
+    buf_base64(ctx, b, (const unsigned char *)s + i, len);
+    buf_str(ctx, b, "?=");
+    first = 0;
+    i += len;
+  }
+}
+
+// A header value that is plain text (Subject, User-Agent): as it is when
+// ASCII and short, encoded otherwise.
+static void buf_text_header(uw_context ctx, buf *b, const char *s) {
+  if (is_ascii_text(s) && strlen(s) <= 76)
+    buf_str(ctx, b, s);
+  else
+    buf_encoded_words(ctx, b, s);
+}
+
+// One address for a header, with its display name encoded if it is not
+// ASCII, or quoted if it has characters an unquoted phrase may not.
+static void buf_address(uw_context ctx, buf *b, const char *s) {
+  const char *lt = strchr(s, '<');
+  const char *name_end;
+  size_t name_len;
+  while (*s == ' ' || *s == '\t')
+    ++s;
+  if (!lt || lt == s) {
+    buf_str(ctx, b, s);
+    return;
+  }
+  name_end = lt;
+  while (name_end > s && (name_end[-1] == ' ' || name_end[-1] == '\t'))
+    --name_end;
+  name_len = name_end - s;
+  if (name_len == 0) {
+    buf_str(ctx, b, lt);
+    return;
+  }
+  {
+    char *name = malloc(name_len + 1);
+    int plain = 1;
+    const char *p;
+    memcpy(name, s, name_len);
+    name[name_len] = 0;
+    for (p = name; *p; ++p)
+      if (strchr("()<>[]:;@\\.\"", *p))
+        plain = 0;
+    if (!is_ascii_text(name))
+      buf_encoded_words(ctx, b, name);
+    else if (plain)
+      buf_str(ctx, b, name);
+    else {
+      buf_str(ctx, b, "\"");
+      for (p = name; *p; ++p) {
+        if (*p == '"' || *p == '\\')
+          buf_str(ctx, b, "\\");
+        buf_append(ctx, b, p, 1);
+      }
+      buf_str(ctx, b, "\"");
+    }
+    free(name);
+  }
+  buf_str(ctx, b, " ");
+  buf_str(ctx, b, lt);
+}
+
+// A list of addresses as the setters built it (comma-separated), one per
+// line after the first when there are several.
+static void buf_address_list(uw_context ctx, buf *b, const char *s) {
+  int first = 1;
+  while (*s) {
+    const char *comma = strchr(s, ',');
+    size_t len = comma ? (size_t)(comma - s) : strlen(s);
+    char *one = malloc(len + 1);
+    memcpy(one, s, len);
+    one[len] = 0;
+    if (!first)
+      buf_str(ctx, b, ",\r\n ");
+    buf_address(ctx, b, one);
+    free(one);
+    first = 0;
+    s += len + (comma ? 1 : 0);
+  }
+}
+
 // The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
 // follow the locale.
 static void date_header(char out[64]) {
@@ -379,19 +508,19 @@ static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
     buf_str(ctx, b, "Message-ID: "); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
   }
   if (h->from) {
-    buf_str(ctx, b, "From: "); buf_str(ctx, b, h->from); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, "From: "); buf_address(ctx, b, h->from); buf_str(ctx, b, "\r\n");
   }
   if (h->subject) {
-    buf_str(ctx, b, "Subject: "); buf_str(ctx, b, h->subject); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, "Subject: "); buf_text_header(ctx, b, h->subject); buf_str(ctx, b, "\r\n");
   }
   if (h->to) {
-    buf_str(ctx, b, "To: "); buf_str(ctx, b, h->to); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, "To: "); buf_address_list(ctx, b, h->to); buf_str(ctx, b, "\r\n");
   }
   if (h->cc) {
-    buf_str(ctx, b, "Cc: "); buf_str(ctx, b, h->cc); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, "Cc: "); buf_address_list(ctx, b, h->cc); buf_str(ctx, b, "\r\n");
   }
   if (h->user_agent) {
-    buf_str(ctx, b, "User-Agent: "); buf_str(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
   }
 
   if (xbody) {
