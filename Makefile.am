@@ -1,10 +1,10 @@
 ACLOCAL_AMFLAGS = -I m4
 
-LIB = @URWEB_LIB@/ur/email
+LIB = @URWEB_LIB@/ur/urmail
 
-lib_LTLIBRARIES = liburweb_email.la
+lib_LTLIBRARIES = liburmail.la
 
-liburweb_email_la_SOURCES = email.c
+liburmail_la_SOURCES = urmail.c
 
 AM_CPPFLAGS = -I@URWEB_INC@
 AM_CFLAGS = -Wimplicit -Wall -Werror
