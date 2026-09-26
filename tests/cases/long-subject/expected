@@ -11,29 +11,23 @@ C: AUTH PLAIN
 S: 334
 C: [AUTH PLAIN credentials: alice secret]
 S: 235 ok
-C: MAIL FROM:<alice@example.com>
+C: MAIL FROM:<shop@example.com>
 S: 250 ok
-C: RCPT TO:<bob@example.net>
-S: 250 ok
-C: RCPT TO:<carol@example.net>
-S: 250 ok
-C: RCPT TO:<dave@example.org>
-S: 250 ok
-C: RCPT TO:<eve@example.org>
+C: RCPT TO:<ob@example.net>
 S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
-| From: Alice <alice@example.com>
-| Subject: Hello
-| To: Bob <bob@example.net>,
-|  carol@example.net
-| Cc: dave@example.org
+| From: "Shop (Orders)" <shop@example.com>
+| Subject: =?UTF-8?B?VGhpcyBpcyBhIHJhdGhlciBsb25nIHN1YmplY3QgbGluZSB0aGF0IHdpbGwg?=
+|  =?UTF-8?B?bm90IGZpdCBpbnRvIHRoZSBzZXZlbnR5LXNpeCBjaGFyYWN0ZXJzIGEgaGVh?=
+|  =?UTF-8?B?ZGVyIGxpbmUgc2hvdWxkIGtlZXAgdG8=?=
+| To: "Dr. O'Brien" <ob@example.net>
 | Content-Type: text/plain; charset=utf-8
 |
-| Hi all
+| Hi
 END
 S: 250 queued
 C: QUIT
