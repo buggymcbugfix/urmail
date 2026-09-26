@@ -1,0 +1,12 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+urp=@LIB_UR@
+
+Name: urmail
+Description: E-mail sending library for Ur/Web
+Version: @PACKAGE_VERSION@
+Requires.private: libcurl
+Libs: -L${libdir} -lurmail
+Cflags: -I${includedir}/urweb
