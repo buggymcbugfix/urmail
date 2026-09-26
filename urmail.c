@@ -289,15 +289,44 @@ static void buf_str(uw_context ctx, buf *b, const char *s) {
   buf_append(ctx, b, s, strlen(s));
 }
 
-// The lines of a message end in CRLF; a bare LF in a body is turned into one.
-static void buf_text(uw_context ctx, buf *b, const char *s) {
-  int last_was_cr = 0;
+// A body as quoted-printable (RFC 2045): lines of at most 76 characters,
+// CRLF line ends whatever the input had, everything outside printable ASCII
+// as =XX.  Long lines and 8-bit text then pass any SMTP server, and a bare
+// '.' at the start of a line is encoded too, so nothing depends on
+// dot-stuffing.
+static void buf_qp(uw_context ctx, buf *b, const char *s) {
+  static const char hex[] = "0123456789ABCDEF";
+  size_t col = 0;
+  int at_line_start = 1;
   for (; *s; ++s) {
-    if (*s == '\n' && !last_was_cr)
+    unsigned char c = *s;
+    char enc[3];
+    size_t n;
+    if (c == '\r' && s[1] == '\n')
+      continue;  // the \n below writes the CRLF
+    if (c == '\n') {
       buf_append(ctx, b, "\r\n", 2);
-    else
-      buf_append(ctx, b, s, 1);
-    last_was_cr = (*s == '\r');
+      col = 0;
+      at_line_start = 1;
+      continue;
+    }
+    if ((c >= 33 && c <= 126 && c != '=' && !(at_line_start && c == '.'))
+        || ((c == ' ' || c == '\t') && s[1] && s[1] != '\n' && !(s[1] == '\r' && s[2] == '\n'))) {
+      enc[0] = c;
+      n = 1;
+    } else {
+      enc[0] = '=';
+      enc[1] = hex[c >> 4];
+      enc[2] = hex[c & 15];
+      n = 3;
+    }
+    if (col + n > 75) {  // room for the soft break's '=' within 76
+      buf_append(ctx, b, "=\r\n", 3);
+      col = 0;
+    }
+    buf_append(ctx, b, enc, n);
+    col += n;
+    at_line_start = 0;
   }
 }
 
@@ -500,6 +529,7 @@ static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
   char date[64], message_id[512];
 
   date_header(date);
+  buf_str(ctx, b, "MIME-Version: 1.0\r\n");
   buf_str(ctx, b, "Date: "); buf_str(ctx, b, date); buf_str(ctx, b, "\r\n");
   if (h->message_id)
     buf_str(ctx, b, "Message-ID: "), buf_str(ctx, b, h->message_id), buf_str(ctx, b, "\r\n");
@@ -527,24 +557,33 @@ static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
     char sep[11];
     boundary(body, xbody, sep);
 
-    buf_str(ctx, b, "MIME-Version: 1.0\r\n"
-                    "Content-Type: multipart/alternative; boundary=\"");
+    buf_str(ctx, b, "Content-Type: multipart/alternative; boundary=\"");
     buf_str(ctx, b, sep);
     buf_str(ctx, b, "\"\r\n\r\n--");
     buf_str(ctx, b, sep);
-    buf_str(ctx, b, "\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n");
-    buf_text(ctx, b, body);
+    buf_str(ctx, b, "\r\nContent-Type: text/plain; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    buf_qp(ctx, b, body);
     buf_str(ctx, b, "\r\n--");
     buf_str(ctx, b, sep);
-    buf_str(ctx, b, "\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
-                    "<!DOCTYPE html><html>");
-    buf_text(ctx, b, xbody);
-    buf_str(ctx, b, "</html>\r\n--");
+    buf_str(ctx, b, "\r\nContent-Type: text/html; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    {
+      // The wrapper is part of the encoded document.
+      buf doc = {NULL, 0, 0};
+      buf_str(ctx, &doc, "<!DOCTYPE html><html>");
+      buf_str(ctx, &doc, xbody);
+      buf_str(ctx, &doc, "</html>");
+      buf_qp(ctx, b, doc.s);
+      free(doc.s);
+    }
+    buf_str(ctx, b, "\r\n--");
     buf_str(ctx, b, sep);
     buf_str(ctx, b, "--");
   } else {
-    buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n\r\n");
-    buf_text(ctx, b, body);
+    buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    buf_qp(ctx, b, body);
   }
 }
 

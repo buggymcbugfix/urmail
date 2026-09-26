@@ -18,23 +18,26 @@ S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
+| MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
 | Subject: Hello
 | To: bob@example.net
-| MIME-Version: 1.0
 | Content-Type: multipart/alternative; boundary="<boundary>"
 |
 | --<boundary>
 | Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
 |
 | Plain text
 |
 | --<boundary>
 | Content-Type: text/html; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
 |
-| <!DOCTYPE html><html><body><p>Hello <b>world</b> &amp; goodbye</p></body></html>
+| <!DOCTYPE html><html><body><p>Hello <b>world</b> &amp; goodbye</p></body></=
+| html>
 | --<boundary>--
 END
 S: 250 queued

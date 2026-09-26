@@ -18,6 +18,7 @@ S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
+| MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <order-42@example.com>
 | From: alice@example.com
@@ -25,6 +26,7 @@ MESSAGE:
 | To: bob@example.net
 | User-Agent: shop/1.0
 | Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
 |
 | Hi
 END
