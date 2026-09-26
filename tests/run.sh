@@ -98,16 +98,13 @@ for case in "${cases[@]}"; do
   app_pid=$pid; app_port=$port
 
   case $tls in
-    none) ssl=0; ca= ;;
-    starttls) ssl=1; ca= ;;
-    starttls-ca) ssl=1; ca=$out/cert.pem ;;
-    starttls-noverify) ssl=1; ca= ;;
+    none|starttls|starttls-noverify) ca= ;;
+    starttls-ca) ca=$out/cert.pem ;;
     *) die "$case: unknown tls setting $tls" ;;
   esac
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
              --data-urlencode "Server=smtp://127.0.0.1:$smtp_port"
-             --data-urlencode "Ssl=$ssl" --data-urlencode "Ca=$ca"
-             --data-urlencode "Tls=$tls")
+             --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
   for f in From To Cc Bcc Subject Body Html User Password; do
     v=
     for kv in "${form[@]}"; do
