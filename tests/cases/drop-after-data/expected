@@ -1,0 +1,31 @@
+HTTP 500
+<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: Failure when receiving data from the peer
+</body></html>
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+|
+| Hi
+END
+(server closed the connection)
+--- application log
+Fatal error: Curl error sending e-mail: Failure when receiving data from the peer

@@ -1,0 +1,4 @@
+# Several To, a Cc and a Bcc; display names on some.
+mode=accept
+tls=none
+form=(From="Alice <alice@example.com>" To="Bob <bob@example.net>,carol@example.net" Cc=dave@example.org Bcc=eve@example.org Subject=Hello Body=$'Hi all\n' User=alice Password=secret)

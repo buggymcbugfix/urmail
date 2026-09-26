@@ -1,0 +1,5 @@
+# Lines beyond SMTP's 998-byte limit, in the text and in the HTML part.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Long Body="$(printf 'x%.0s' $(seq 1200))
+short" Html="$(printf 'y%.0s' $(seq 1200))" User=alice Password=secret)

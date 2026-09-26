@@ -1,0 +1,4 @@
+# TLS required but the server does not offer STARTTLS.
+mode=no-starttls
+tls=starttls-ca
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

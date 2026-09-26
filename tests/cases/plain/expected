@@ -1,0 +1,32 @@
+HTTP 200
+<!DOCTYPE html><html><head></head><body>sent</body></html>
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+|
+| First line
+| Second line
+END
+S: 250 queued
+C: QUIT
+S: 221 bye
+--- application log
