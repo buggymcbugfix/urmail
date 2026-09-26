@@ -11,5 +11,6 @@ pkgs.mkShell {
     curl
     openssl
     python3
+    sqlite
   ];
 }

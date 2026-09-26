@@ -1,7 +1,5 @@
-HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: Could not connect to server
-</body></html>
+--- status
+NotSent: Could not connect to server
 --- server
 (no server)
 --- application log
-Fatal error: urmail: not sent: Could not connect to server

@@ -13,7 +13,9 @@ AM_CFLAGS = -Wall -Werror -Wimplicit
 # with `library $(LIB_UR)`.
 LIB_URdir = $(LIB_UR)
 LIB_UR_DATA = \
+  urmail.ur \
   urmail.urs \
+  urmailFfi.urs \
   lib.urp \
   config.urp
 
@@ -24,7 +26,9 @@ PKGCONFIGdir = $(PKGCONFIG)
 PKGCONFIG_DATA = urmail.pc
 
 EXTRA_DIST = \
+  urmail.ur \
   urmail.urs \
+  urmailFfi.urs \
   lib.urp \
   config.urp.in \
   urmail.pc.in \
