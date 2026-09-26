@@ -33,5 +33,5 @@ val send : string           (* Server, in CURL URL form *)
            -> string        (* Password (for SMTP authentication) *)
            -> headers
            -> string        (* Plain text message body *)
-           -> option xbody  (* Optional HTML message body *)
+           -> option page   (* Optional HTML version of the message *)
            -> transaction unit

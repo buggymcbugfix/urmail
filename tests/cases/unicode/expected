@@ -32,7 +32,7 @@ MESSAGE:
 | --<boundary>
 | Content-Type: text/html; charset=utf-8
 |
-| <p>Hello <b>Gr&#252;&#223;e</b> &amp; goodbye</p>
+| <!DOCTYPE html><html><body><p>Hello <b>Gr&#252;&#223;e</b> &amp; goodbye</p></body></html>
 | --<boundary>--
 END
 S: 250 queued
