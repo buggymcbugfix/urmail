@@ -1,0 +1,4 @@
+# A plain-text message, no TLS, no authentication challenge worth the name.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'First line\nSecond line\n' User=alice Password=secret)

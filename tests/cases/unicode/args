@@ -1,0 +1,4 @@
+# Non-ASCII in the subject, a display name and the body.
+mode=accept
+tls=none
+form=(From="Änne Müller <aenne@example.com>" To=bob@example.net Subject="Bestellbestätigung – Straße 1" Body=$'Grüße aus Köln – über 30 °C\n' Html="Grüße" User=alice Password=secret)

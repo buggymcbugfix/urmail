@@ -1,0 +1,4 @@
+# The server refuses the recipient: nothing was sent.
+mode=reject-rcpt
+tls=none
+form=(From=alice@example.com To=nobody@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

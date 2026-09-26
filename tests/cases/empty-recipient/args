@@ -1,0 +1,4 @@
+# An empty string as an address (here: two of them).
+mode=accept
+tls=none
+form=(From=alice@example.com To="," Subject=Hello Body=$'Hi\n' User=alice Password=secret)
