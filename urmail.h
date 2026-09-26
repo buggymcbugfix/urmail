@@ -20,6 +20,8 @@ uw_Urmail_headers uw_Urmail_to(uw_context, uw_Basis_string, uw_Urmail_headers);
 uw_Urmail_headers uw_Urmail_cc(uw_context, uw_Basis_string, uw_Urmail_headers);
 uw_Urmail_headers uw_Urmail_bcc(uw_context, uw_Basis_string, uw_Urmail_headers);
 uw_Urmail_headers uw_Urmail_subject(uw_context, uw_Basis_string, uw_Urmail_headers);
+uw_Urmail_headers uw_Urmail_user_agent(uw_context, uw_Basis_string, uw_Urmail_headers);
+uw_Urmail_headers uw_Urmail_messageId(uw_context, uw_Basis_string, uw_Urmail_headers);
 
 uw_unit uw_Urmail_send(uw_context, uw_Basis_string server, uw_Urmail_tls tls,
                      uw_Basis_string user, uw_Basis_string password,

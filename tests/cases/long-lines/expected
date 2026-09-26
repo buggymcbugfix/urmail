@@ -18,6 +18,8 @@ S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
+| Date: <date>
+| Message-ID: <generated@example.com>
 | From: alice@example.com
 | Subject: Long
 | To: bob@example.net

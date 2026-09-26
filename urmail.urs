@@ -8,6 +8,12 @@ val empty : headers
 (* Each of the following may be used at most once in constructing a [headers]. *)
 val from : string -> headers -> headers
 val subject : string -> headers -> headers
+val user_agent : string -> headers -> headers
+val messageId : string -> headers -> headers
+(* The Message-ID header, "<unique@domain>".  One is generated when none is
+   given.  Give one that is a function of the message when the message may be
+   sent more than once (a retry after a failure whose outcome was unknown, say):
+   receivers recognise a duplicate by it. *)
 
 (* The following must be called with single valid e-mail address arguments, and
  * all such addresses passed are combined into single header values. *)

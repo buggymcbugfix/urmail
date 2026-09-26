@@ -1,0 +1,7 @@
+HTTP 500
+<html><head><title>Fatal Error</title></head><body>Fatal error: Message-ID is not of the form <left@right>
+</body></html>
+--- server
+(no client connected)
+--- application log
+Fatal error: Message-ID is not of the form <left@right>

@@ -65,7 +65,7 @@ normalize() {
   boundary=$(sed -n 's/.*boundary="\([^"]*\)".*/\1/p' "$1" | head -1)
   sed -e 's/^| EHLO .*/| EHLO <host>/; s/^C: EHLO .*/C: EHLO <host>/' \
       -e 's/^| Date: .*/| Date: <date>/' \
-      -e 's/^| Message-ID: .*/| Message-ID: <id>/' \
+      -e 's/^| Message-ID: <[0-9a-f]\{24\}@/| Message-ID: <generated@/' \
       -e "${boundary:+s/$boundary/<boundary>/g}" \
       "$1"
 }
@@ -105,7 +105,7 @@ for case in "${cases[@]}"; do
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
              --data-urlencode "Server=smtp://127.0.0.1:$smtp_port"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
-  for f in From To Cc Bcc Subject Body Html User Password; do
+  for f in From To Cc Bcc Subject Body Html User Password MessageId UserAgent; do
     v=
     for kv in "${form[@]}"; do
       case $kv in "$f="*) v=${kv#*=} ;; esac
