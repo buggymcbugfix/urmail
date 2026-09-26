@@ -22,13 +22,20 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
-| Subject: Hello
+| Subject: QP
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
-| First line
-| Second line
+| a=3Db
+| =2Ehidden dot
+| trailing space=20
+| windows line
+| 	tabbed
+| 123456789012345678901234567890123456789012345678901234567890123456789012345
+| 123456789012345678901234567890123456789012345678901234567890123456789012345=
+| 6
+| no final newline
 END
 S: 250 queued
 C: QUIT

@@ -19,12 +19,14 @@ S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
+| MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
 | Subject: Hello
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
 |
 | Hi
 END

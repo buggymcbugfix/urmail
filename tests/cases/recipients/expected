@@ -24,6 +24,7 @@ S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:
+| MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: Alice <alice@example.com>
@@ -32,6 +33,7 @@ MESSAGE:
 |  carol@example.net
 | Cc: dave@example.org
 | Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
 |
 | Hi all
 END
