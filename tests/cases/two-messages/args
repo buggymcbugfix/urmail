@@ -1,0 +1,6 @@
+# Two messages in a row go over one connection: the second one has no
+# greeting, EHLO or login.
+mode=accept
+tls=none
+sends=2
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

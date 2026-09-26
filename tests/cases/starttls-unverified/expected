@@ -1,5 +1,5 @@
 HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: SSL peer certificate or SSH remote key was not OK
+<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: not sent: SSL peer certificate or SSH remote key was not OK
 </body></html>
 --- server
 S: 220 fake.test ESMTP
@@ -11,6 +11,6 @@ S: 250 AUTH PLAIN
 C: STARTTLS
 S: 220 go ahead
 (TLS established)
-(connection error)
+(client closed the connection)
 --- application log
-Fatal error: Curl error sending e-mail: SSL peer certificate or SSH remote key was not OK
+Fatal error: urmail: not sent: SSL peer certificate or SSH remote key was not OK

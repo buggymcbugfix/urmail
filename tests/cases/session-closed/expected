@@ -1,17 +1,11 @@
-HTTP 200
+HTTP 200 200
 <!DOCTYPE html><html><head></head><body>sent</body></html>
 --- server
+--- session 1
 S: 220 fake.test ESMTP
 C: EHLO <host>
 S: 250-fake.test
 S: 250-STARTTLS
-S: 250-8BITMIME
-S: 250 AUTH PLAIN
-C: STARTTLS
-S: 220 go ahead
-(TLS established)
-C: EHLO <host>
-S: 250-fake.test
 S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
@@ -34,8 +28,39 @@ MESSAGE:
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
-| Secret
+| Hi
 END
 S: 250 queued
-(client closed the connection)
+(server closed the connection)
+--- session 2
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(server closed the connection)
 --- application log

@@ -32,7 +32,19 @@ datatype tls =
                              certificate; never for production, since anyone
                              on the path can then read the credentials. *)
 
-(* Send out a message by connecting to the given SMTP server. *)
+(* Send out a message through the given SMTP server, once the transaction has
+   committed.  The connection is kept open for the next message to the same
+   server and account.
+
+   A failure is an error of the transaction, after its commit, with a message
+   starting in "urmail: not sent:" when the message certainly did not go out
+   (the server refused it, or the connection failed before any of it was
+   uploaded), or "urmail: outcome unknown:" when the connection was lost after
+   the upload began and the server's verdict never arrived.  A retry in the
+   second case may deliver the message twice; see [messageId].
+
+   A send is given up after URMAIL_TIMEOUT seconds (60 unless set) without
+   progress.  URMAIL_DEBUG=1 traces the sends on stderr. *)
 val send : string           (* Server, in CURL URL form *)
            -> tls
            -> string        (* Username (for SMTP authentication) *)

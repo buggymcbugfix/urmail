@@ -1,0 +1,5 @@
+# The server accepts the connection and never answers: the send is given
+# up after the timeout (URMAIL_TIMEOUT, 2 seconds in the tests).
+mode=hang
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -31,6 +31,5 @@ MESSAGE:
 | Hi
 END
 S: 250 queued
-C: QUIT
-S: 221 bye
+(client closed the connection)
 --- application log
