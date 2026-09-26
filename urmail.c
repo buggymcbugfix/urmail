@@ -1,13 +1,16 @@
 #include "config.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 #include <curl/curl.h>
 
 #include <urweb/urweb.h>
 #include "urmail.h"
 
 struct headers {
-  uw_Basis_string from, to, cc, bcc, subject, user_agent;
+  uw_Basis_string from, to, cc, bcc, subject, user_agent, message_id;
 };
 
 typedef struct headers *uw_Urmail_headers;
@@ -34,6 +37,7 @@ static uw_Urmail_headers copy_headers(uw_Urmail_headers h) {
   h2->bcc = copy_string(h->bcc);
   h2->subject = copy_string(h->subject);
   h2->user_agent = copy_string(h->user_agent);
+  h2->message_id = copy_string(h->message_id);
   return h2;
 }
 
@@ -44,6 +48,7 @@ static void free_headers(uw_Urmail_headers h) {
   free_string(h->bcc);
   free_string(h->subject);
   free_string(h->user_agent);
+  free_string(h->message_id);
   free(h);
 }
 
@@ -180,6 +185,30 @@ uw_Urmail_headers uw_Urmail_user_agent(uw_context ctx, uw_Basis_string s, uw_Urm
   return h2;
 }
 
+uw_Urmail_headers uw_Urmail_messageId(uw_context ctx, uw_Basis_string s, uw_Urmail_headers h) {
+  uw_Urmail_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+  size_t n = strlen(s);
+  const char *p;
+
+  if (h)
+    *h2 = *h;
+  else
+    memset(h2, 0, sizeof(*h2));
+
+  if (h2->message_id)
+    uw_error(ctx, FATAL, "Duplicate Message-ID header");
+
+  header(ctx, s);
+  if (n < 3 || s[0] != '<' || s[n-1] != '>' || !strchr(s, '@'))
+    uw_error(ctx, FATAL, "Message-ID is not of the form <left@right>");
+  for (p = s; *p; ++p)
+    if (*p == ' ' || *p == '\t' || (*p == '<' && p != s) || (*p == '>' && p != s + n - 1))
+      uw_error(ctx, FATAL, "Message-ID contains a space or a stray bracket");
+  h2->message_id = uw_strdup(ctx, s);
+
+  return h2;
+}
+
 typedef struct {
   uw_context ctx;
   uw_Urmail_headers h;
@@ -279,12 +308,76 @@ static void boundary(const char *body, const char *xbody, char out[11]) {
   } while (strstr(body, out) || (xbody && strstr(xbody, out)));
 }
 
+// The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
+// follow the locale.
+static void date_header(char out[64]) {
+  static const char *days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  static const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  time_t now = time(NULL);
+  struct tm tm;
+  gmtime_r(&now, &tm);
+  snprintf(out, 64, "%s, %d %s %d %02d:%02d:%02d +0000",
+           days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], tm.tm_year + 1900,
+           tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
+// The domain of an address ("Name <user@domain>" or "user@domain"), for a
+// generated Message-ID; "localhost" when there is none.
+static void domain_of(const char *addr, char *out, size_t n) {
+  const char *lt = strchr(addr, '<'), *at, *end;
+  at = strchr(lt ? lt : addr, '@');
+  if (!at) {
+    snprintf(out, n, "localhost");
+    return;
+  }
+  ++at;
+  end = at + strcspn(at, "> \t");
+  if (end == at) {
+    snprintf(out, n, "localhost");
+    return;
+  }
+  snprintf(out, n, "%.*s", (int)(end - at), at);
+}
+
+// A Message-ID unique enough: random bytes, or if the system will not give
+// any, the time, the process and a counter.
+static void generate_message_id(const char *from, char *out, size_t n) {
+  unsigned char r[12];
+  char hex[25];
+  char domain[256];
+  FILE *f = fopen("/dev/urandom", "rb");
+  int ok = f && fread(r, 1, sizeof r, f) == sizeof r;
+  if (f)
+    fclose(f);
+  if (ok) {
+    int i;
+    for (i = 0; i < 12; ++i)
+      snprintf(hex + 2*i, 3, "%02x", r[i]);
+  } else {
+    static unsigned counter = 0;
+    snprintf(hex, sizeof hex, "%lx.%x.%x", (long)time(NULL), (unsigned)getpid(), ++counter);
+  }
+  domain_of(from, domain, sizeof domain);
+  snprintf(out, n, "<%s@%s>", hex, domain);
+}
+
 // Assemble the message: headers, then the text body, or a multipart/alternative
 // of the text body and the HTML document.  `xbody` is the string of a `page`
 // value, which is the document's contents without the html element (the
 // runtime adds that when it serves a page), hence the wrapper.
 static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
                      uw_Basis_string body, uw_Basis_string xbody) {
+  char date[64], message_id[512];
+
+  date_header(date);
+  buf_str(ctx, b, "Date: "); buf_str(ctx, b, date); buf_str(ctx, b, "\r\n");
+  if (h->message_id)
+    buf_str(ctx, b, "Message-ID: "), buf_str(ctx, b, h->message_id), buf_str(ctx, b, "\r\n");
+  else {
+    generate_message_id(h->from, message_id, sizeof message_id);
+    buf_str(ctx, b, "Message-ID: "); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
+  }
   if (h->from) {
     buf_str(ctx, b, "From: "); buf_str(ctx, b, h->from); buf_str(ctx, b, "\r\n");
   }
