@@ -1,5 +1,5 @@
 HTTP 500
-<html><head><title>Fatal Error</title></head><body>Fatal error: Curl error sending e-mail: Failure when receiving data from the peer
+<html><head><title>Fatal Error</title></head><body>Fatal error: urmail: outcome unknown: connection lost after the message was sent: Failure when receiving data from the peer
 </body></html>
 --- server
 S: 220 fake.test ESMTP
@@ -32,4 +32,4 @@ MESSAGE:
 END
 (server closed the connection)
 --- application log
-Fatal error: Curl error sending e-mail: Failure when receiving data from the peer
+Fatal error: urmail: outcome unknown: connection lost after the message was sent: Failure when receiving data from the peer

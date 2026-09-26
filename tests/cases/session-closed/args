@@ -1,0 +1,6 @@
+# The server closes the connection after the first message, as servers do
+# after a message or an idle period; the second message goes over a new one.
+mode=close-after-one
+tls=none
+sends=2
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

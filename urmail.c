@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <curl/curl.h>
 
 #include <urweb/urweb.h>
@@ -587,45 +588,118 @@ static void assemble(uw_context ctx, buf *b, uw_Urmail_headers h,
   }
 }
 
-static void commit(void *data) {
-  job *j = data;
+/* ---- Delivery: a persistent connection per server and account, one send at
+   a time on each, and an outcome that says what is known. ---- */
+
+typedef enum { SENT, NOT_SENT, UNKNOWN } outcome_kind;
+
+typedef struct {
+  outcome_kind kind;
+  char message[512];  // for NOT_SENT and UNKNOWN: what libcurl said, and the
+                      // server's last reply code if there was one
+} outcome;
+
+// Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
+static int debugging(void) {
+  static int state = -1;
+  if (state < 0) {
+    const char *v = getenv("URMAIL_DEBUG");
+    state = v && *v && strcmp(v, "0") != 0;
+  }
+  return state;
+}
+
+#define DBG(...) do { if (debugging()) { fprintf(stderr, "urmail: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
+
+// Seconds without progress (connecting, or waiting for the server) after
+// which a send is given up.  URMAIL_TIMEOUT overrides the default, for tests.
+static long timeout_seconds(void) {
+  static long t = -1;
+  if (t < 0) {
+    const char *v = getenv("URMAIL_TIMEOUT");
+    t = v && *v ? atol(v) : 60;
+    if (t <= 0)
+      t = 60;
+  }
+  return t;
+}
+
+typedef struct smtp_conn {
+  char *server, *user, *password, *ca;
+  enum uw_Urmail_tls_tag tls;
   CURL *curl;
+  pthread_mutex_t lock;  // held for the duration of a send on this connection
+  struct smtp_conn *next;
+} smtp_conn;
+
+static smtp_conn *conns = NULL;
+static pthread_mutex_t conns_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_once_t curl_once = PTHREAD_ONCE_INIT;
+
+static void curl_init(void) {
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
+static int str_eq(const char *a, const char *b) {
+  return (a == NULL && b == NULL) || (a && b && !strcmp(a, b));
+}
+
+// The connection for this server and account, created on first use.  The
+// libcurl handle keeps the TCP (and TLS) connection open between sends, so a
+// batch of messages does not pay for a handshake and a login each.
+static smtp_conn *get_connection(job *j) {
+  smtp_conn *c;
+  pthread_once(&curl_once, curl_init);
+  pthread_mutex_lock(&conns_lock);
+  for (c = conns; c; c = c->next)
+    if (!strcmp(c->server, j->server) && !strcmp(c->user, j->user)
+        && !strcmp(c->password, j->password) && str_eq(c->ca, j->ca) && c->tls == j->tls)
+      break;
+  if (!c) {
+    c = malloc(sizeof(smtp_conn));
+    c->server = strdup(j->server);
+    c->user = strdup(j->user);
+    c->password = strdup(j->password);
+    c->ca = j->ca ? strdup(j->ca) : NULL;
+    c->tls = j->tls;
+    c->curl = NULL;
+    pthread_mutex_init(&c->lock, NULL);
+    c->next = conns;
+    conns = c;
+    DBG("new connection record for %s as %s", c->server, c->user);
+  }
+  pthread_mutex_unlock(&conns_lock);
+  return c;
+}
+
+static struct curl_slist *add_recipients(struct curl_slist *l, const char *list) {
+  if (list) {
+    char *copy = strdup(list), *saveptr, *addr = strtok_r(copy, ",", &saveptr);
+    if (addr)
+      do {
+        l = curl_slist_append(l, addrOf(addr));
+      } while ((addr = strtok_r(NULL, ",", &saveptr)));
+    free(copy);
+  }
+  return l;
+}
+
+// One attempt; `fresh` forces a new TCP connection.
+static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
+                        upload_status *up, int fresh) {
+  CURL *curl = c->curl;
+  char *from = strdup(j->h->from);
   CURLcode res;
-  upload_status upload_ctx;
-  struct curl_slist *recipients = NULL;
+  long t = timeout_seconds();
 
-  upload_ctx.content = j->message;
-  upload_ctx.length = j->length;
-
-  if (j->h->to) {
-    char *saveptr, *addr = strtok_r(j->h->to, ",", &saveptr);
-    if (addr)
-      do {
-        recipients = curl_slist_append(recipients, addrOf(addr));
-      } while ((addr = strtok_r(NULL, ",", &saveptr)));
-  }
-
-  if (j->h->cc) {
-    char *saveptr, *addr = strtok_r(j->h->cc, ",", &saveptr);
-    if (addr)
-      do {
-        recipients = curl_slist_append(recipients, addrOf(addr));
-      } while ((addr = strtok_r(NULL, ",", &saveptr)));
-  }
-
-  if (j->h->bcc) {
-    char *saveptr, *addr = strtok_r(j->h->bcc, ",", &saveptr);
-    if (addr)
-      do {
-        recipients = curl_slist_append(recipients, addrOf(addr));
-      } while ((addr = strtok_r(NULL, ",", &saveptr)));
-  }
-
-  curl = curl_easy_init();
-  if (!curl) {
-    uw_set_error_message(j->ctx, "Can't create curl object");
-    return;
-  }
+  curl_easy_reset(curl);
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);  // threads: no SIGALRM for timeouts
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, t);
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, t);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10 * t);  // the hard cap, for a stalling server
+  if (fresh)
+    curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
 
   curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
   curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
@@ -648,20 +722,128 @@ static void commit(void *data) {
     break;
   }
 
-  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(j->h->from));
+  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(from));
   curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
-  curl_easy_setopt(curl, CURLOPT_READDATA, &upload_ctx);
+  curl_easy_setopt(curl, CURLOPT_READDATA, up);
   curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-  //curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+  if (debugging())
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   res = curl_easy_perform(curl);
+  free(from);
+  return res;
+}
 
-  if (res != CURLE_OK)
-    uw_set_error_message(j->ctx, "Curl error sending e-mail: %s", curl_easy_strerror(res));
+// Send the job's message.  What can be told afterwards:
+//
+//   - CURLE_OK: sent.
+//   - The server answered with a code of 400 or more: it refused something
+//     (a recipient, the message); not sent.
+//   - The connection broke before any of the message was uploaded: not sent.
+//     When the connection was a reused one, the server may simply have
+//     dropped it while idle, and one more attempt is made, on a fresh one.
+//   - The connection broke after the message was uploaded, in full or in part,
+//     and the server's verdict never arrived: unknown.  No retry here; that is
+//     the caller's decision, since it may mean a duplicate.
+static void deliver(job *j, outcome *o) {
+  smtp_conn *c = get_connection(j);
+  struct curl_slist *recipients = NULL;
+  upload_status up;
+  CURLcode res;
+  int fresh = 0, tries = 0;
 
+  recipients = add_recipients(recipients, j->h->to);
+  recipients = add_recipients(recipients, j->h->cc);
+  recipients = add_recipients(recipients, j->h->bcc);
+
+  pthread_mutex_lock(&c->lock);
+  if (!c->curl)
+    c->curl = curl_easy_init();
+  if (!c->curl) {
+    pthread_mutex_unlock(&c->lock);
+    curl_slist_free_all(recipients);
+    o->kind = NOT_SENT;
+    snprintf(o->message, sizeof o->message, "cannot create a libcurl handle");
+    return;
+  }
+
+  for (;;) {
+    long code = 0, connects = 0;
+    curl_off_t uploaded = 0;
+
+    up.content = j->message;
+    up.length = j->length;
+    ++tries;
+    DBG("attempt %d (%s connection) for %s", tries, fresh ? "fresh" : "reused if possible", j->server);
+    res = attempt(c, j, recipients, &up, fresh);
+
+    if (res == CURLE_OK) {
+      DBG("sent");
+      o->kind = SENT;
+      o->message[0] = 0;
+      break;
+    }
+
+    curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_getinfo(c->curl, CURLINFO_SIZE_UPLOAD_T, &uploaded);
+    curl_easy_getinfo(c->curl, CURLINFO_NUM_CONNECTS, &connects);
+    DBG("failed: %s (SMTP %ld, uploaded %lld bytes, %ld new connections)",
+        curl_easy_strerror(res), code, (long long)uploaded, connects);
+
+    if (code >= 400) {
+      o->kind = NOT_SENT;
+      snprintf(o->message, sizeof o->message, "server refused: %s (SMTP %ld)",
+               curl_easy_strerror(res), code);
+      break;
+    }
+
+    if (uploaded > 0) {
+      o->kind = UNKNOWN;
+      snprintf(o->message, sizeof o->message, "connection lost after the message was sent: %s",
+               curl_easy_strerror(res));
+      break;
+    }
+
+    if (tries == 1 && connects == 0
+        && (res == CURLE_SEND_ERROR || res == CURLE_RECV_ERROR || res == CURLE_GOT_NOTHING)) {
+      // A reused connection that the server had closed: try once more, fresh.
+      fresh = 1;
+      continue;
+    }
+
+    o->kind = NOT_SENT;
+    snprintf(o->message, sizeof o->message, "%s", curl_easy_strerror(res));
+    break;
+  }
+
+  if (res != CURLE_OK) {
+    // Whatever state the connection is in, do not reuse it.
+    curl_easy_cleanup(c->curl);
+    c->curl = NULL;
+  }
+  pthread_mutex_unlock(&c->lock);
   curl_slist_free_all(recipients);
-  curl_easy_cleanup(curl);
+}
+
+// The transactional's commit: after the transaction committed, send, and
+// report a failure as the error of the transaction.  The runtime logs it
+// and, in a request handler, runs the application's error handler.
+static void commit(void *data) {
+  job *j = data;
+  outcome o;
+
+  deliver(j, &o);
+  switch (o.kind) {
+  case SENT:
+    break;
+  case NOT_SENT:
+    uw_set_error_message(j->ctx, "urmail: not sent: %s", o.message);
+    break;
+  case UNKNOWN:
+    uw_set_error_message(j->ctx, "urmail: outcome unknown: %s", o.message);
+    break;
+  }
 }
 
 static void free_job(void *p, int will_retry) {
