@@ -257,15 +257,11 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
   }
 }
 
-// A MIME boundary that occurs in neither part.
-static void boundary(const char *body, const char *xbody, char out[11]) {
-  out[10] = 0;
-  do {
-    int i;
-    for (i = 0; i < 10; ++i)
-      out[i] = 'A' + (rand() % 26);
-  } while (strstr(body, out) || (xbody && strstr(xbody, out)));
-}
+// The boundary of the multipart/alternative.  Fixed, and safe: every part is
+// quoted-printable or base64, and neither encoding can produce "=_" (in
+// quoted-printable an '=' is followed by two hex digits or a line break, and
+// base64 has no '_'), so no boundary starting with it can occur in a part.
+#define ALTERNATIVE_BOUNDARY "=_urmail_alternative"
 
 /* ---- Header encoding: RFC 2047 encoded-words for what is not ASCII, and
    folding for what is long. ---- */
@@ -481,19 +477,13 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
   }
 
   if (xbody) {
-    char sep[11];
-    boundary(body, xbody, sep);
-
-    buf_str(ctx, b, "Content-Type: multipart/alternative; boundary=\"");
-    buf_str(ctx, b, sep);
-    buf_str(ctx, b, "\"\r\n\r\n--");
-    buf_str(ctx, b, sep);
-    buf_str(ctx, b, "\r\nContent-Type: text/plain; charset=utf-8\r\n"
+    buf_str(ctx, b, "Content-Type: multipart/alternative; boundary=\"" ALTERNATIVE_BOUNDARY "\"\r\n\r\n"
+                    "--" ALTERNATIVE_BOUNDARY "\r\n"
+                    "Content-Type: text/plain; charset=utf-8\r\n"
                     "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
     buf_qp(ctx, b, body);
-    buf_str(ctx, b, "\r\n--");
-    buf_str(ctx, b, sep);
-    buf_str(ctx, b, "\r\nContent-Type: text/html; charset=utf-8\r\n"
+    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "\r\n"
+                    "Content-Type: text/html; charset=utf-8\r\n"
                     "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
     {
       // The wrapper is part of the encoded document.
@@ -504,9 +494,7 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
       buf_qp(ctx, b, doc.s);
       free(doc.s);
     }
-    buf_str(ctx, b, "\r\n--");
-    buf_str(ctx, b, sep);
-    buf_str(ctx, b, "--");
+    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "--");
   } else {
     buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n"
                     "Content-Transfer-Encoding: quoted-printable\r\n\r\n");

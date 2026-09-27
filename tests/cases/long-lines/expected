@@ -24,9 +24,9 @@ MESSAGE:
 | From: alice@example.com
 | Subject: Long
 | To: bob@example.net
-| Content-Type: multipart/alternative; boundary="<boundary>"
+| Content-Type: multipart/alternative; boundary="=_urmail_alternative"
 |
-| --<boundary>
+| --=_urmail_alternative
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
@@ -47,7 +47,7 @@ MESSAGE:
 | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=
 | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | short
-| --<boundary>
+| --=_urmail_alternative
 | Content-Type: text/html; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
@@ -68,7 +68,7 @@ MESSAGE:
 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy=
 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy=
 | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy</b> &amp; goodbye</p></body></html>
-| --<boundary>--
+| --=_urmail_alternative--
 END
 S: 250 queued
 (client closed the connection)
