@@ -30,6 +30,10 @@ uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context, uw_Basis_string, uw_Urma
 uw_UrmailFfi_attachment uw_UrmailFfi_attach(uw_context, uw_Basis_string ascii_name, uw_Basis_string utf8_name,
                                             uw_Basis_string type, uw_Basis_blob data);
 uw_Basis_string uw_UrmailFfi_attachmentProblem(uw_context, uw_UrmailFfi_attachment);
+// The same part marked inline, and the cid: URL of such a part (a `url`,
+// which is a string in C).
+uw_UrmailFfi_attachment uw_UrmailFfi_inline(uw_context, uw_UrmailFfi_attachment);
+uw_Basis_string uw_UrmailFfi_cid(uw_context, uw_UrmailFfi_attachment);
 
 extern uw_UrmailFfi_attachments uw_UrmailFfi_noAttachments;
 uw_UrmailFfi_attachments uw_UrmailFfi_addAttachment(uw_context, uw_UrmailFfi_attachment, uw_UrmailFfi_attachments);

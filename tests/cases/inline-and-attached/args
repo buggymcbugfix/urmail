@@ -1,0 +1,8 @@
+# Inline and attached parts together: multipart/mixed of the related (the
+# alternative and the inline part) and the attached one, whatever the order
+# they were given in.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Both Body=$'Plain text\n' Html=world User=alice Password=secret
+      Attach1='blob|notes.txt||text/plain|Notes'
+      Attach2='inline|logo.png||image/png|not really a png')

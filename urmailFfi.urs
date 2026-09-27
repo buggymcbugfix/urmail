@@ -26,6 +26,12 @@ type attachment
 val attach : string -> option string -> string -> blob -> attachment
 val attachmentProblem : attachment -> option string
 
+(* The same part marked inline, to be referred to from the HTML part by
+   the cid: URL [cid] gives for it.  The Content-ID is a function of the
+   part. *)
+val inline : attachment -> attachment
+val cid : attachment -> url
+
 (* The attachments of a message, for [send]. *)
 type attachments
 val noAttachments : attachments
@@ -46,9 +52,11 @@ datatype tls =
 datatype sendStatus =
     Sent
   | Refused of string    (* The server refused it for good (a 5xx reply: no
-                            such recipient, message rejected); sending it
-                            again will not help.  The string says what the
-                            server said. *)
+                            such recipient, message rejected), or the
+                            library would not send it (an inline part with
+                            no HTML part to refer to it); sending it again
+                            will not help.  The string says what the server,
+                            or the library, said. *)
   | NotSent of string    (* Not delivered, for now: the server declined with
                             a 4xx reply (mailbox busy, storage short,
                             greylisting), or the connection failed before

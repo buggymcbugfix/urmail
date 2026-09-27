@@ -35,28 +35,42 @@ fun headers [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, MessageId, Us
                       MessageId = opt r.MessageId, To = addrs r.To, Cc = addrs r.Cc, Bcc = addrs r.Bcc}
 
 (* An attachment as the runner spells it, KIND|ASCII|UTF8|TYPE|DATA, an
-   empty UTF8 meaning none: with KIND blob, DATA is the text of the file. *)
+   empty UTF8 meaning none: with KIND blob, DATA is the text of the file;
+   with KIND inline, the same, and the part is inline, its url given to the
+   HTML part. *)
 fun fields (s : string) : list string =
     case String.split s #"|" of
         None => s :: []
       | Some (a, rest) => a :: fields rest
 
-fun attachment (spec : string) : result Urmail.attachment =
+fun attachment (spec : string) : result (Urmail.attachment * option url) =
     case fields spec of
         "blob" :: ascii :: utf8 :: typ :: data :: [] =>
-        Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
-                                    Data = textBlob data}
+        a <- Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
+                                         Data = textBlob data};
+        return (a, None)
+      | "inline" :: ascii :: utf8 :: typ :: data :: [] =>
+        a <- Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
+                                         Data = textBlob data};
+        let
+            val (a, u) = Urmail.Attachment.inline a
+        in
+            return (a, Some u)
+        end
       | _ => error <xml>Bad attachment spec: {[spec]}</xml>
 
-(* The attachments of the fields, in order; an empty field is none. *)
+(* The attachments of the fields, in order, with the urls of the inline
+   ones; an empty field is none. *)
 fun attachments [rest ::: {Type}] [rest ~ [Attach1, Attach2, Attach3]]
                 (r : $([Attach1 = string, Attach2 = string, Attach3 = string] ++ rest))
-    : result (list Urmail.attachment) =
-    List.mapM attachment (List.filter (fn s => s <> "") (r.Attach1 :: r.Attach2 :: r.Attach3 :: []))
+    : result (list Urmail.attachment * list url) =
+    aus <- List.mapM attachment (List.filter (fn s => s <> "") (r.Attach1 :: r.Attach2 :: r.Attach3 :: []));
+    return (List.mp (fn (a, _) => a) aus,
+            List.mapPartial (fn (_, u) => u) aus)
 
-fun html [rest ::: {Type}] [rest ~ [Html]] (r : $([Html = string] ++ rest)) : option page =
+fun html [rest ::: {Type}] [rest ~ [Html]] (r : $([Html = string] ++ rest)) (inlines : list url) : option page =
     if r.Html = "" then None
-    else Some <xml><body><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p></body></xml>
+    else Some <xml><body><p>Hello <b>{[r.Html]}</b> &amp; goodbye</p>{List.mapX (fn u => <xml><img src={u}/></xml>) inlines}</body></xml>
 
 fun tls [rest ::: {Type}] [rest ~ [Tls, Ca]] (r : $([Tls = string, Ca = string] ++ rest)) : Urmail.tls =
     case r.Tls of
@@ -93,10 +107,10 @@ task periodic 1 = fn () =>
                                | Success h =>
                                  case attachments j of
                                      Failure e => return ("Refused: " ^ show e)
-                                   | Success as =>
+                                   | Success (as, inlines) =>
                                      s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
                                                        Password = j.Password, Headers = h, Text = j.Body,
-                                                       Html = html j, Attachments = as};
+                                                       Html = html j inlines, Attachments = as};
                                      return (showStatus s));
                        runTransaction (dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[j.Id]})))
                    jobs;

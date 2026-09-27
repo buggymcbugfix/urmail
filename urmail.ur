@@ -40,6 +40,13 @@ structure Attachment = struct
 			Failure <xml>Attachment "{[r.AsciiName]}": MIME type {[r.MimeType]} is not allowed by the project file</xml>
 		| Some _ =>
 			checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name r.MimeType r.Data)
+
+	fun inline a =
+		let
+			val a = UrmailFfi.inline a
+		in
+			(a, UrmailFfi.cid a)
+		end
 end
 
 fun send r =
