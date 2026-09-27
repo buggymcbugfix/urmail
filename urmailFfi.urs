@@ -18,6 +18,19 @@ val bcc : string -> headers -> headers
    From, no recipient. *)
 val problem : headers -> option string
 
+(* An attachment, checked as the headers are: [attach] never fails, and
+   [attachmentProblem] says what is wrong with what it was given.  The
+   arguments: the ASCII name, the UTF-8 name if any, the MIME type, the
+   bytes. *)
+type attachment
+val attach : string -> option string -> string -> blob -> attachment
+val attachmentProblem : attachment -> option string
+
+(* The attachments of a message, for [send]. *)
+type attachments
+val noAttachments : attachments
+val addAttachment : attachment -> attachments -> attachments
+
 (* How to talk to the server. *)
 datatype tls =
     Plain                 (* No TLS. *)
@@ -41,7 +54,8 @@ datatype sendStatus =
                             server may or may not have accepted the message.
                             Sending again may deliver it twice. *)
 
-(* Send now.  The headers must have passed [problem]; Urmail.send sees to it. *)
+(* Send now.  The headers must have passed [problem] and every attachment
+   [attachmentProblem]; Urmail.send sees to it. *)
 val send : string           (* Server, as a libcurl URL *)
            -> tls
            -> string        (* Username (for SMTP authentication) *)
@@ -49,4 +63,5 @@ val send : string           (* Server, as a libcurl URL *)
            -> headers
            -> string        (* Plain text message body *)
            -> option page   (* Optional HTML version of the message *)
+           -> attachments
            -> io sendStatus

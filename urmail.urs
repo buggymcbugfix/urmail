@@ -3,6 +3,9 @@
 (* The headers of a message, as [mkHeaders] checked them. *)
 type headers
 
+(* An attachment, as [Attachment.fromBlob] checked it. *)
+type attachment
+
 datatype tls = datatype UrmailFfi.tls
 datatype sendStatus = datatype UrmailFfi.sendStatus
 
@@ -25,6 +28,23 @@ val mkHeaders :
 	} ->
 	result headers
 
+structure Attachment : sig
+	(* An attachment, or what is wrong with it.  AsciiName is the name every
+	   client reads (the filename= parameter): printable ASCII, not empty, no
+	   '/' or '\', at most 255 bytes.  Utf8Name, if given, is sent beside it
+	   for the clients that read RFC 2231 (filename*=), under the same limits
+	   but for the ASCII one.  MimeType is type/subtype, and the project file
+	   must allow it (`allow mime`), as it must for Basis.checkMime. *)
+	val fromBlob :
+		{
+			AsciiName : string,
+			Utf8Name : option string,
+			MimeType : string,
+			Data : blob
+		} ->
+		result attachment
+end
+
 (* Send a message through an SMTP server, now, and say what became of it.
    In io, since a send cannot be undone: an io task claims what is to be sent
    in one transaction, sends, and records the status in another.  The
@@ -41,6 +61,7 @@ val send :
 		Password : string,
 		Headers : headers,
 		Text : string,        (* the plain text body *)
-		Html : option page    (* the HTML version, if any *)
+		Html : option page,   (* the HTML version, if any *)
+		Attachments : list attachment  (* after the body, in this order *)
 	} ->
 	io sendStatus

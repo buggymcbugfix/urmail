@@ -1,0 +1,8 @@
+# Two attachments on a message with an HTML part: multipart/mixed of the
+# alternative and the two files, in the order given; the second has a UTF-8
+# name beside its ASCII one (RFC 2231), and a quote in the ASCII one.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Plain text\n' Html=world User=alice Password=secret
+      Attach1='blob|a.txt||text/plain|A'
+      Attach2='blob|"quoted" name.txt|Notizen über Ä.txt|text/plain|B')

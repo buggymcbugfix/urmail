@@ -2,6 +2,8 @@ library ..
 allow url /Test/status
 safeGet Test/status
 minHeap 65536
+allow mime text/plain
+allow mime image/png
 
 $/list
 $/string

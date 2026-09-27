@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -138,6 +139,109 @@ uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, u
   return h2;
 }
 
+/* ---- Attachments: built one at a time and checked, like the headers; a
+   list of them goes to send. ---- */
+
+struct attachment {
+  uw_Basis_string ascii_name;  // the filename= every client reads
+  uw_Basis_string utf8_name;   // the filename*= beside it, or NULL
+  uw_Basis_string type;        // type/subtype
+  uw_Basis_blob data;
+  const char *error;           // the first problem a check found, or NULL
+};
+
+// The name limits keep a Content-Disposition line under the 998 bytes SMTP
+// allows without RFC 2231 continuations: 255 bytes percent-encoded is 765.
+#define NAME_MAX_BYTES 255
+
+// What is wrong with a name as a filename= parameter, or NULL.
+static const char *ascii_name(uw_Basis_string s) {
+  const char *p;
+
+  if (!*s)
+    return "name is empty";
+  if (strlen(s) > NAME_MAX_BYTES)
+    return "name is longer than 255 bytes";
+  for (p = s; *p; ++p) {
+    if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7E)
+      return "name is not printable ASCII";
+    if (*p == '/' || *p == '\\')
+      return "name contains '/' or '\\'";
+  }
+  return NULL;
+}
+
+// The same for the UTF-8 name, which any byte but a control character may be in.
+static const char *utf8_name(uw_Basis_string s) {
+  const char *p;
+
+  if (!*s)
+    return "UTF-8 name is empty";
+  if (strlen(s) > NAME_MAX_BYTES)
+    return "UTF-8 name is longer than 255 bytes";
+  for (p = s; *p; ++p) {
+    if ((unsigned char)*p < 0x20 || *p == 0x7F)
+      return "UTF-8 name contains a control character";
+    if (*p == '/' || *p == '\\')
+      return "UTF-8 name contains '/' or '\\'";
+  }
+  return NULL;
+}
+
+// A MIME type as it goes into Content-Type: type/subtype of the characters
+// Basis.checkMime allows, so no parameters, and exactly one slash.
+static const char *mime_type(uw_Basis_string s) {
+  const char *p, *slash = NULL;
+
+  for (p = s; *p; ++p) {
+    if (*p == '/') {
+      if (slash)
+        return "MIME type has more than one slash";
+      slash = p;
+    } else if (!isalnum((unsigned char)*p) && *p != '-' && *p != '.' && *p != '+')
+      return "MIME type has a character outside type/subtype";
+  }
+  if (!slash || slash == s || !slash[1])
+    return "MIME type is not of the form type/subtype";
+  return NULL;
+}
+
+uw_UrmailFfi_attachment uw_UrmailFfi_attach(uw_context ctx, uw_Basis_string ascii, uw_Basis_string utf8,
+                                            uw_Basis_string type, uw_Basis_blob data) {
+  uw_UrmailFfi_attachment a = uw_malloc(ctx, sizeof(struct attachment));
+  const char *error;
+
+  a->ascii_name = uw_strdup(ctx, ascii);
+  a->utf8_name = utf8 ? uw_strdup(ctx, utf8) : NULL;
+  a->type = uw_strdup(ctx, type);
+  a->data = data;
+  if (!(error = ascii_name(ascii)) && !(utf8 && (error = utf8_name(utf8))))
+    error = mime_type(type);
+  a->error = error;
+  return a;
+}
+
+uw_Basis_string uw_UrmailFfi_attachmentProblem(uw_context ctx, uw_UrmailFfi_attachment a) {
+  return a->error ? uw_strdup(ctx, (char *)a->error) : NULL;
+}
+
+// The list, newest first; send reads it backwards.
+struct attachments {
+  uw_UrmailFfi_attachment a;
+  struct attachments *next;
+};
+
+uw_UrmailFfi_attachments uw_UrmailFfi_noAttachments = NULL;
+
+uw_UrmailFfi_attachments uw_UrmailFfi_addAttachment(uw_context ctx, uw_UrmailFfi_attachment a,
+                                                    uw_UrmailFfi_attachments l) {
+  uw_UrmailFfi_attachments l2 = uw_malloc(ctx, sizeof(struct attachments));
+
+  l2->a = a;
+  l2->next = l;
+  return l2;
+}
+
 // What deliver() needs: the arguments of send, the TLS choice unpacked, and
 // the message as it goes over the wire.  Nothing here outlives the call.
 typedef struct {
@@ -257,11 +361,12 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
   }
 }
 
-// The boundary of the multipart/alternative.  Fixed, and safe: every part is
+// The boundaries of the multiparts.  Fixed, and safe: every part is
 // quoted-printable or base64, and neither encoding can produce "=_" (in
 // quoted-printable an '=' is followed by two hex digits or a line break, and
 // base64 has no '_'), so no boundary starting with it can occur in a part.
 #define ALTERNATIVE_BOUNDARY "=_urmail_alternative"
+#define MIXED_BOUNDARY "=_urmail_mixed"
 
 /* ---- Header encoding: RFC 2047 encoded-words for what is not ASCII, and
    folding for what is long. ---- */
@@ -443,13 +548,114 @@ static void generate_message_id(const char *from, char *out, size_t n) {
   snprintf(out, n, "<%s@%s>", hex, domain);
 }
 
-// Assemble the message: headers, then the text body, or a multipart/alternative
-// of the text body and the HTML document.  `xbody` is the string of a `page`
-// value, which is the document's contents without the html element (the
-// runtime adds that when it serves a page), hence the wrapper.
+// The bytes as base64 in lines of 76 characters (RFC 2045), CRLF between
+// them and none after the last.
+static void buf_base64_lines(uw_context ctx, buf *b, const unsigned char *s, size_t n) {
+  size_t i;
+  for (i = 0; i < n; i += 57) {
+    if (i)
+      buf_append(ctx, b, "\r\n", 2);
+    buf_base64(ctx, b, s + i, n - i < 57 ? n - i : 57);
+  }
+}
+
+// A name as the value of filename=: quoted, with '"' and '\' escaped.
+static void buf_quoted(uw_context ctx, buf *b, const char *s) {
+  buf_str(ctx, b, "\"");
+  for (; *s; ++s) {
+    if (*s == '"' || *s == '\\')
+      buf_str(ctx, b, "\\");
+    buf_append(ctx, b, s, 1);
+  }
+  buf_str(ctx, b, "\"");
+}
+
+// A name as the value of filename*= (RFC 2231): UTF-8, percent-encoded but
+// for letters, digits and "-._".
+static void buf_extended(uw_context ctx, buf *b, const char *s) {
+  static const char hex[] = "0123456789ABCDEF";
+  buf_str(ctx, b, "UTF-8''");
+  for (; *s; ++s) {
+    unsigned char c = *s;
+    if (isalnum(c) || c == '-' || c == '.' || c == '_')
+      buf_append(ctx, b, s, 1);
+    else {
+      char enc[3] = {'%', hex[c >> 4], hex[c & 15]};
+      buf_append(ctx, b, enc, 3);
+    }
+  }
+}
+
+// One attachment as a MIME part: its headers, then the bytes in base64.  The
+// ASCII name is the filename= every client reads; the UTF-8 name, when
+// there is one, is a filename*= (RFC 2231) beside it, first, since a parser
+// that takes the first of the two is then right, and on a line of its own.
+static void buf_attachment(uw_context ctx, buf *b, uw_UrmailFfi_attachment a) {
+  buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, a->type); buf_str(ctx, b, "\r\n");
+  buf_str(ctx, b, "Content-Disposition: attachment;");
+  if (a->utf8_name) {
+    buf_str(ctx, b, " filename*=");
+    buf_extended(ctx, b, a->utf8_name);
+    buf_str(ctx, b, ";\r\n");
+  }
+  buf_str(ctx, b, " filename=");
+  buf_quoted(ctx, b, a->ascii_name);
+  buf_str(ctx, b, "\r\nContent-Transfer-Encoding: base64\r\n\r\n");
+  buf_base64_lines(ctx, b, (const unsigned char *)a->data.data, a->data.size);
+}
+
+// The text body, or the multipart/alternative of it and the HTML document,
+// with its Content-Type: the whole message's, or a part's.  `xbody` is the
+// string of a `page` value, which is the document's contents without the
+// html element (the runtime adds that when it serves a page), hence the
+// wrapper.
+static void buf_body(uw_context ctx, buf *b, uw_Basis_string body, uw_Basis_string xbody) {
+  if (xbody) {
+    buf_str(ctx, b, "Content-Type: multipart/alternative; boundary=\"" ALTERNATIVE_BOUNDARY "\"\r\n\r\n"
+                    "--" ALTERNATIVE_BOUNDARY "\r\n"
+                    "Content-Type: text/plain; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    buf_qp(ctx, b, body);
+    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "\r\n"
+                    "Content-Type: text/html; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    {
+      // The wrapper is part of the encoded document.
+      buf doc = {NULL, 0, 0};
+      buf_str(ctx, &doc, "<!DOCTYPE html><html>");
+      buf_str(ctx, &doc, xbody);
+      buf_str(ctx, &doc, "</html>");
+      buf_qp(ctx, b, doc.s);
+      free(doc.s);
+    }
+    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "--");
+  } else {
+    buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n"
+                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
+    buf_qp(ctx, b, body);
+  }
+}
+
+// The attachments in the order they were given: the list is newest first.
+static size_t in_order(uw_UrmailFfi_attachments l, uw_UrmailFfi_attachment **out) {
+  size_t n = 0, i;
+  uw_UrmailFfi_attachments p;
+
+  for (p = l; p; p = p->next)
+    ++n;
+  *out = n ? malloc(n * sizeof **out) : NULL;
+  for (p = l, i = n; p; p = p->next)
+    (*out)[--i] = p->a;
+  return n;
+}
+
+// Assemble the message: headers, then the body, or when there are
+// attachments a multipart/mixed of the body and one part per attachment.
 static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
-                     uw_Basis_string body, uw_Basis_string xbody) {
+                     uw_Basis_string body, uw_Basis_string xbody, uw_UrmailFfi_attachments attachments) {
   char date[64], message_id[512];
+  uw_UrmailFfi_attachment *as;
+  size_t n, i;
 
   date_header(date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
@@ -476,30 +682,19 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
     buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
   }
 
-  if (xbody) {
-    buf_str(ctx, b, "Content-Type: multipart/alternative; boundary=\"" ALTERNATIVE_BOUNDARY "\"\r\n\r\n"
-                    "--" ALTERNATIVE_BOUNDARY "\r\n"
-                    "Content-Type: text/plain; charset=utf-8\r\n"
-                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
-    buf_qp(ctx, b, body);
-    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "\r\n"
-                    "Content-Type: text/html; charset=utf-8\r\n"
-                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
-    {
-      // The wrapper is part of the encoded document.
-      buf doc = {NULL, 0, 0};
-      buf_str(ctx, &doc, "<!DOCTYPE html><html>");
-      buf_str(ctx, &doc, xbody);
-      buf_str(ctx, &doc, "</html>");
-      buf_qp(ctx, b, doc.s);
-      free(doc.s);
-    }
-    buf_str(ctx, b, "\r\n--" ALTERNATIVE_BOUNDARY "--");
-  } else {
-    buf_str(ctx, b, "Content-Type: text/plain; charset=utf-8\r\n"
-                    "Content-Transfer-Encoding: quoted-printable\r\n\r\n");
-    buf_qp(ctx, b, body);
+  n = in_order(attachments, &as);
+  if (n) {
+    buf_str(ctx, b, "Content-Type: multipart/mixed; boundary=\"" MIXED_BOUNDARY "\"\r\n\r\n"
+                    "--" MIXED_BOUNDARY "\r\n");
   }
+  buf_body(ctx, b, body, xbody);
+  for (i = 0; i < n; ++i) {
+    buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "\r\n");
+    buf_attachment(ctx, b, as[i]);
+  }
+  if (n)
+    buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "--");
+  free(as);
 }
 
 /* ---- Delivery: a persistent connection per server and account, one send at
@@ -760,27 +955,33 @@ uw_Basis_string uw_UrmailFfi_problem(uw_context ctx, uw_UrmailFfi_headers h) {
   return wrong ? uw_strdup(ctx, wrong) : NULL;
 }
 
-// Headers that Urmail.mkHeaders did not pass: not something the Ur side can
-// produce, so an error of the caller.
-static void refuse(uw_context ctx, uw_UrmailFfi_headers h) {
+// Headers that Urmail.mkHeaders did not pass, or an attachment that
+// Urmail.Attachment did not: not something the Ur side can produce, so an
+// error of the caller.
+static void refuse(uw_context ctx, uw_UrmailFfi_headers h, uw_UrmailFfi_attachments attachments) {
   const char *wrong = check(h);
+  uw_UrmailFfi_attachments p;
 
   if (wrong)
     uw_error(ctx, FATAL, "urmail: headers not from mkHeaders: %s", wrong);
+  for (p = attachments; p; p = p->next)
+    if (p->a->error)
+      uw_error(ctx, FATAL, "urmail: attachment not from Urmail.Attachment: %s", p->a->error);
 }
 
 // UrmailFfi.send, in io: assemble the message, send it now, and say what
 // became of it.
 uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server, uw_UrmailFfi_tls tls,
                                           uw_Basis_string user, uw_Basis_string password,
-                                          uw_UrmailFfi_headers h, uw_Basis_string body, uw_Basis_string xbody) {
+                                          uw_UrmailFfi_headers h, uw_Basis_string body, uw_Basis_string xbody,
+                                          uw_UrmailFfi_attachments attachments) {
   buf b = {NULL, 0, 0};
   job j;
   outcome o;
   uw_UrmailFfi_sendStatus r = uw_malloc(ctx, sizeof(struct uw_UrmailFfi_sendStatus));
 
-  refuse(ctx, h);
-  assemble(ctx, &b, h, body, xbody);
+  refuse(ctx, h, attachments);
+  assemble(ctx, &b, h, body, xbody, attachments);
 
   j.h = h;
   j.server = server;

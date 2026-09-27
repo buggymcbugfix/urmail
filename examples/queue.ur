@@ -55,7 +55,7 @@ task periodic 1 = fn () =>
         None => return ()
       | Some (r, h) =>
         status <- Urmail.send {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
-                               Headers = h, Text = r.Text, Html = None};
+                               Headers = h, Text = r.Text, Html = None, Attachments = []};
         runTransaction (record r.Id status)
 
 fun main () = return <xml><body>
