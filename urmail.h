@@ -24,10 +24,10 @@ uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context, uw_Basis_string, uw_Urm
 uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
 
 // UrmailFfi.sendStatus, laid out as uw_UrmailFfi_tls is.
-enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_NotSent, uw_UrmailFfi_MaybeSent };
+enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_Refused, uw_UrmailFfi_NotSent, uw_UrmailFfi_MaybeSent };
 struct uw_UrmailFfi_sendStatus {
   enum uw_UrmailFfi_sendStatus_tag tag;
-  union { uw_Basis_string uw_NotSent; uw_Basis_string uw_MaybeSent; } data;
+  union { uw_Basis_string uw_Refused; uw_Basis_string uw_NotSent; uw_Basis_string uw_MaybeSent; } data;
 };
 typedef struct uw_UrmailFfi_sendStatus *uw_UrmailFfi_sendStatus;
 

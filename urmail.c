@@ -517,12 +517,12 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
 /* ---- Delivery: a persistent connection per server and account, one send at
    a time on each, and an outcome that says what is known. ---- */
 
-typedef enum { SENT, NOT_SENT, MAYBE_SENT } outcome_kind;
+typedef enum { SENT, REFUSED, NOT_SENT, MAYBE_SENT } outcome_kind;
 
 typedef struct {
   outcome_kind kind;
-  char message[512];  // for NOT_SENT and MAYBE_SENT: what libcurl said, and
-                      // the server's last reply code if there was one
+  char message[512];  // unless SENT: what libcurl said, and the server's
+                      // last reply code if there was one
 } outcome;
 
 // Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
@@ -664,8 +664,10 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
 // Send the job's message.  What can be told afterwards:
 //
 //   - CURLE_OK: sent.
-//   - The server answered with a code of 400 or more: it refused something
-//     (a recipient, the message); not sent.
+//   - The server answered with a code of 500 or more: it refused something
+//     (a recipient, the message) for good; sending again will not help.
+//   - The server answered with a code of 400 to 499: it declined for now (a
+//     mailbox busy, storage short, greylisting); not sent, try again later.
 //   - The connection broke before any of the message was uploaded: not sent.
 //     When the connection was a reused one, the server may simply have
 //     dropped it while idle, and one more attempt is made, on a fresh one.
@@ -717,9 +719,16 @@ static void deliver(job *j, outcome *o) {
     DBG("failed: %s (SMTP %ld, uploaded %lld bytes, %ld new connections)",
         curl_easy_strerror(res), code, (long long)uploaded, connects);
 
+    if (code >= 500) {
+      o->kind = REFUSED;
+      snprintf(o->message, sizeof o->message, "server refused: %s (SMTP %ld)",
+               curl_easy_strerror(res), code);
+      break;
+    }
+
     if (code >= 400) {
       o->kind = NOT_SENT;
-      snprintf(o->message, sizeof o->message, "server refused: %s (SMTP %ld)",
+      snprintf(o->message, sizeof o->message, "server declined for now: %s (SMTP %ld)",
                curl_easy_strerror(res), code);
       break;
     }
@@ -809,6 +818,10 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
   switch (o.kind) {
   case SENT:
     r->tag = uw_UrmailFfi_Sent;
+    break;
+  case REFUSED:
+    r->tag = uw_UrmailFfi_Refused;
+    r->data.uw_Refused = uw_strdup(ctx, o.message);
     break;
   case NOT_SENT:
     r->tag = uw_UrmailFfi_NotSent;

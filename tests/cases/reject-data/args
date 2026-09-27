@@ -1,4 +1,4 @@
-# The server reads the whole message and then refuses it: nothing was sent.
+# The server refuses the message after DATA (554): refused, no retry.
 mode=reject-data
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

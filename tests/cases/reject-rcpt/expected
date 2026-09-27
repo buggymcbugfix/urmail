@@ -1,5 +1,5 @@
 --- status
-NotSent: server refused: Failed sending data to the peer (SMTP 550)
+Refused: server refused: Failed sending data to the peer (SMTP 550)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

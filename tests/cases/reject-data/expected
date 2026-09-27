@@ -1,5 +1,5 @@
 --- status
-NotSent: server refused: Weird server reply (SMTP 554)
+Refused: server refused: Weird server reply (SMTP 554)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

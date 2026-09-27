@@ -16,6 +16,7 @@ The modes:
     close-after-one   the connection is closed after the first message is
                       accepted, as a server that limits a session would
     reject-rcpt       every RCPT TO is refused with 550
+    defer-rcpt        every RCPT TO is declined with 450, as for greylisting
     reject-data       the message is read in full and then refused with 554
     drop-after-data   the message is read in full and the connection is
                       closed without a reply: the client cannot know
@@ -155,6 +156,8 @@ class Session:
             elif verb == "RCPT":
                 if self.mode == "reject-rcpt":
                     self.reply("550 no such user")
+                elif self.mode == "defer-rcpt":
+                    self.reply("450 try again later")
                 else:
                     self.reply("250 ok")
             elif verb == "DATA":
