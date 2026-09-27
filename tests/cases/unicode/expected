@@ -24,21 +24,21 @@ MESSAGE:
 | From: =?UTF-8?B?w4RubmUgTcO8bGxlcg==?= <aenne@example.com>
 | Subject: =?UTF-8?B?QmVzdGVsbGJlc3TDpHRpZ3VuZyDigJMgU3RyYcOfZSAx?=
 | To: bob@example.net
-| Content-Type: multipart/alternative; boundary="<boundary>"
+| Content-Type: multipart/alternative; boundary="=_urmail_alternative"
 |
-| --<boundary>
+| --=_urmail_alternative
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
 | Gr=C3=BC=C3=9Fe aus K=C3=B6ln =E2=80=93 =C3=BCber 30 =C2=B0C
 |
-| --<boundary>
+| --=_urmail_alternative
 | Content-Type: text/html; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
 | <!DOCTYPE html><html><body><p>Hello <b>Gr&#252;&#223;e</b> &amp; goodbye</p=
 | ></body></html>
-| --<boundary>--
+| --=_urmail_alternative--
 END
 S: 250 queued
 (client closed the connection)

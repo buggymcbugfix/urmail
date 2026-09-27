@@ -76,12 +76,9 @@ done
 
 # Replace what varies from run to run.
 normalize() {
-  local boundary
-  boundary=$(sed -n 's/.*boundary="\([^"]*\)".*/\1/p' "$1" | head -1)
   sed -e 's/^| EHLO .*/| EHLO <host>/; s/^C: EHLO .*/C: EHLO <host>/' \
       -e 's/^| Date: .*/| Date: <date>/' \
       -e 's/^| Message-ID: <[0-9a-f]\{24\}@/| Message-ID: <generated@/' \
-      -e "${boundary:+s/$boundary/<boundary>/g}" \
       "$1"
 }
 
