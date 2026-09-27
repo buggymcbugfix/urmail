@@ -3,8 +3,8 @@
 (* The headers of a message, as [mkHeaders] checked them. *)
 type headers
 
-(* An attachment, as [Attachment.fromBlob] checked it; or an inline part of
-   the HTML, after [Attachment.inline]. *)
+(* An attachment, as [Attachment.fromBlob] or [Attachment.fromFile] checked
+   it; or an inline part of the HTML, after [Attachment.inline]. *)
 type attachment
 
 datatype tls = datatype UrmailFfi.tls
@@ -42,6 +42,19 @@ structure Attachment : sig
 			Utf8Name : option string,
 			MimeType : string,
 			Data : blob
+		} ->
+		result attachment
+
+	(* An attachment holding a file the application serves by a `file`
+	   directive of its project file, by the path it is served at: the
+	   bytes and the MIME type are the directive's, the type allowed by
+	   being declared there.  Fails when nothing is served at the path or
+	   no MIME type is known for it. *)
+	val fromFile :
+		{
+			AsciiName : string,
+			Utf8Name : option string,
+			ServedPath : string
 		} ->
 		result attachment
 

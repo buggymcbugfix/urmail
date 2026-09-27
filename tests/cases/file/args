@@ -1,0 +1,6 @@
+# A served file (the project's logo.png, 69 bytes, so two base64 lines)
+# attached under a name of the caller's, with the directive's MIME type.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'See attached\n' User=alice Password=secret
+      Attach1='file|our-logo.png|||/logo.png')

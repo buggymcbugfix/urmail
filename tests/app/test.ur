@@ -35,29 +35,38 @@ fun headers [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, MessageId, Us
                       MessageId = opt r.MessageId, To = addrs r.To, Cc = addrs r.Cc, Bcc = addrs r.Bcc}
 
 (* An attachment as the runner spells it, KIND|ASCII|UTF8|TYPE|DATA, an
-   empty UTF8 meaning none: with KIND blob, DATA is the text of the file;
-   with KIND inline, the same, and the part is inline, its url given to the
-   HTML part. *)
+   empty UTF8 meaning none.  KIND blob: DATA is the text of the file.  KIND
+   file: the file is one of this project's `file` directives, DATA its
+   served path, and TYPE is not used.  inline and inline-file: the same, and
+   the part is inline, its url given to the HTML part. *)
 fun fields (s : string) : list string =
     case String.split s #"|" of
         None => s :: []
       | Some (a, rest) => a :: fields rest
 
 fun attachment (spec : string) : result (Urmail.attachment * option url) =
-    case fields spec of
-        "blob" :: ascii :: utf8 :: typ :: data :: [] =>
-        a <- Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
-                                         Data = textBlob data};
-        return (a, None)
-      | "inline" :: ascii :: utf8 :: typ :: data :: [] =>
-        a <- Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
-                                         Data = textBlob data};
-        let
-            val (a, u) = Urmail.Attachment.inline a
-        in
-            return (a, Some u)
-        end
-      | _ => error <xml>Bad attachment spec: {[spec]}</xml>
+    let
+        fun make kind ascii utf8 typ data =
+            case kind of
+                "blob" => Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
+                                                      Data = textBlob data}
+              | "file" => Urmail.Attachment.fromFile {AsciiName = ascii, Utf8Name = opt utf8, ServedPath = data}
+              | _ => error <xml>Bad attachment kind: {[kind]}</xml>
+    in
+        case fields spec of
+            kind :: ascii :: utf8 :: typ :: data :: [] =>
+            (case kind of
+                 "inline" =>
+                 a <- make "blob" ascii utf8 typ data;
+                 return (Urmail.Attachment.inline a |> (fn (a, u) => (a, Some u)))
+               | "inline-file" =>
+                 a <- make "file" ascii utf8 typ data;
+                 return (Urmail.Attachment.inline a |> (fn (a, u) => (a, Some u)))
+               | _ =>
+                 a <- make kind ascii utf8 typ data;
+                 return (a, None))
+          | _ => error <xml>Bad attachment spec: {[spec]}</xml>
+    end
 
 (* The attachments of the fields, in order, with the urls of the inline
    ones; an empty field is none. *)
