@@ -13,7 +13,9 @@
 #               starttls, starttls-ca, starttls-noverify: what the client is
 #               told), form=(...) (the fields of the request, curl -d style),
 #               sends=N (the request is made N times; the server then
-#               serves up to N sessions), api=io|check (the message is
+#               serves up to N sessions), url=smtp|bare|http (how the
+#               server is named: smtp://host:port, host:port alone, or an
+#               http:// URL, which must be refused), api=io|check (the message is
 #               queued and sent by the application's io task, the default,
 #               or only checked by Urmail.mkHeaders; the transcript's first
 #               part is the statuses the task recorded, or what mkHeaders said)
@@ -87,7 +89,7 @@ failed=0
 for case in "${cases[@]}"; do
   dir=$here/cases/$case
   [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=(); sends=1; api=io
+  mode=accept; tls=none; form=(); sends=1; api=io; url=smtp
   # shellcheck disable=SC1090
   . "$dir/args"
   work=$out/$case
@@ -123,8 +125,14 @@ for case in "${cases[@]}"; do
     starttls-ca) ca=$out/cert.pem ;;
     *) die "$case: unknown tls setting $tls" ;;
   esac
+  case $url in
+    smtp) server="smtp://127.0.0.1:$smtp_port" ;;
+    bare) server="127.0.0.1:$smtp_port" ;;
+    http) server="http://127.0.0.1:$smtp_port" ;;
+    *) die "$case: unknown url form $url" ;;
+  esac
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
-             --data-urlencode "Server=smtp://127.0.0.1:$smtp_port"
+             --data-urlencode "Server=$server"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
   for f in From To Cc Bcc Subject Body Html User Password MessageId UserAgent; do
     v=

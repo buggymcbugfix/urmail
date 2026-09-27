@@ -1,0 +1,4 @@
+# A server URL with a scheme other than smtp or smtps is refused before anything is sent.
+url=http
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

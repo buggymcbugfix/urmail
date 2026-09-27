@@ -35,7 +35,8 @@ val mkHeaders :
    progress.  URMAIL_DEBUG=1 traces the sends on stderr. *)
 val send :
 	{
-		ServerUrl : string,   (* smtp://host:port or smtps://host:port *)
+		ServerUrl : string,   (* smtp://host:port, smtps://host:port, or
+		                         host:port, which is smtp:// *)
 		Tls : tls,
 		User : string,        (* for SMTP authentication *)
 		Password : string,
