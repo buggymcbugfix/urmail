@@ -1,0 +1,6 @@
+# An inline part with no HTML part to refer to it: not sent, and the status
+# says why.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'Plain text\n' User=alice Password=secret
+      Attach1='inline|logo.png||image/png|not really a png')

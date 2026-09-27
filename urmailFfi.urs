@@ -26,6 +26,12 @@ type attachment
 val attach : string -> option string -> string -> blob -> attachment
 val attachmentProblem : attachment -> option string
 
+(* The same part marked inline, to be referred to from the HTML part by
+   the cid: URL [cid] gives for it.  The Content-ID is a function of the
+   part. *)
+val inline : attachment -> attachment
+val cid : attachment -> url
+
 (* The attachments of a message, for [send]. *)
 type attachments
 val noAttachments : attachments

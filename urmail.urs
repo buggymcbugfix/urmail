@@ -3,7 +3,8 @@
 (* The headers of a message, as [mkHeaders] checked them. *)
 type headers
 
-(* An attachment, as [Attachment.fromBlob] checked it. *)
+(* An attachment, as [Attachment.fromBlob] checked it; or an inline part of
+   the HTML, after [Attachment.inline]. *)
 type attachment
 
 datatype tls = datatype UrmailFfi.tls
@@ -43,6 +44,13 @@ structure Attachment : sig
 			Data : blob
 		} ->
 		result attachment
+
+	(* The same part, marked inline, and the cid: url the HTML part refers
+	   to it by, for <img src={u}/> and the like.  The Content-ID is a
+	   function of the part, so the two agree.  A message with an inline
+	   part and no HTML part is not sent: nothing would refer to the part,
+	   and [send] says so in its status. *)
+	val inline : attachment -> attachment * url
 end
 
 (* Send a message through an SMTP server, now, and say what became of it.
@@ -62,6 +70,8 @@ val send :
 		Headers : headers,
 		Text : string,        (* the plain text body *)
 		Html : option page,   (* the HTML version, if any *)
-		Attachments : list attachment  (* after the body, in this order *)
+		Attachments : list attachment  (* the attached ones after the body,
+		                                  in this order; the inline ones
+		                                  with the HTML *)
 	} ->
 	io sendStatus

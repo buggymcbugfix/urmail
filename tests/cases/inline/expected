@@ -1,0 +1,57 @@
+--- status
+Sent
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Logo
+| To: bob@example.net
+| Content-Type: multipart/related; type="multipart/alternative";
+|  boundary="=_urmail_related"
+|
+| --=_urmail_related
+| Content-Type: multipart/alternative; boundary="=_urmail_alternative"
+|
+| --=_urmail_alternative
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Plain text
+|
+| --=_urmail_alternative
+| Content-Type: text/html; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| <!DOCTYPE html><html><body><p>Hello <b>world</b> &amp; goodbye</p><img src=
+| =3D"cid:5e7414a403a25a46@urmail" /></body></html>
+| --=_urmail_alternative--
+| --=_urmail_related
+| Content-Type: image/png
+| Content-ID: <5e7414a403a25a46@urmail>
+| Content-Disposition: inline; filename="logo.png"
+| Content-Transfer-Encoding: base64
+|
+| bm90IHJlYWxseSBhIHBuZw==
+| --=_urmail_related--
+END
+S: 250 queued
+(client closed the connection)
+--- application log
