@@ -5,7 +5,8 @@
    MaybeSent (the connection died after the upload, before the server's
    verdict) is the application's decision to send again or not; here it is
    sent again, and the Message-ID, a function of the row, lets receivers
-   drop a duplicate. *)
+   drop a duplicate.  The HTML version carries the application's logo, a
+   file it serves, as an inline part. *)
 
 val serverUrl = "smtp://you.com:587"
 val user = "you"
@@ -22,20 +23,33 @@ fun enqueue r =
          VALUES ({[id]}, {[r.From]}, {[r.To]}, {[r.Subject]}, {[r.Text]}, FALSE, NULL));
     return <xml><body>Queued as #{[id]}</body></xml>
 
-(* Step 1, a transaction: the next message, claimed, with its headers checked. *)
+(* The logo, checked like the headers.  The `file` directive in queue.urp
+   makes the bytes and the MIME type the compiler's. *)
+val logo =
+    Urmail.Attachment.fromFile {AsciiName = "logo.png", Utf8Name = None, ServedPath = "/logo.png"}
+
+(* Step 1, a transaction: the next message, claimed, with its headers and
+   its attachment checked. *)
 val claim =
     r <- oneOrNoRows1 (SELECT * FROM queue WHERE NOT queue.Claimed ORDER BY queue.Id LIMIT 1);
     case r of
         None => return None
       | Some r =>
         dml (UPDATE queue SET Claimed = TRUE WHERE Id = {[r.Id]});
-        case Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = None,
-                               MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
-                               To = r.To :: [], Cc = [], Bcc = []} of
-            Failure e =>
-            dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
-            return None
-          | Success h => return (Some (r, h))
+        let
+            val checked =
+                h <- Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = None,
+                                       MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
+                                       To = r.To :: [], Cc = [], Bcc = []};
+                l <- logo;
+                return (h, Urmail.Attachment.inline l)
+        in
+            case checked of
+                Failure e =>
+                dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
+                return None
+              | Success (h, (l, logoUrl)) => return (Some (r, h, l, logoUrl))
+        end
 
 (* Step 3, another transaction: what became of it. *)
 fun record id status =
@@ -53,9 +67,11 @@ task periodic 1 = fn () =>
     claimed <- runTransaction claim;
     case claimed of
         None => return ()
-      | Some (r, h) =>
+      | Some (r, h, logo, logoUrl) =>
         status <- Urmail.send {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
-                               Headers = h, Text = r.Text, Html = None, Attachments = []};
+                               Headers = h, Text = r.Text,
+                               Html = Some <xml><body><img src={logoUrl}/><p>{[r.Text]}</p></body></xml>,
+                               Attachments = logo :: []};
         runTransaction (record r.Id status)
 
 fun main () = return <xml><body>

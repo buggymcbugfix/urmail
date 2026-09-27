@@ -1,0 +1,5 @@
+--- check
+refused: Attachment "x.png": No file directive serves /nope.png
+--- server
+(no client connected)
+--- application log

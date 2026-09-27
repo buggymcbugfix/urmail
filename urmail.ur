@@ -41,6 +41,15 @@ structure Attachment = struct
 		| Some _ =>
 			checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name r.MimeType r.Data)
 
+	fun fromFile r =
+		case checkServedFile r.ServedPath of
+		| Failure e => Failure <xml>Attachment "{[r.AsciiName]}": {e}</xml>
+		| Success f =>
+			if fileMimeType f = "" then
+				Failure <xml>Attachment "{[r.AsciiName]}": no MIME type is known for {[r.ServedPath]}; give one in its file directive</xml>
+			else
+				checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name (fileMimeType f) (fileData f))
+
 	fun inline a =
 		let
 			val a = UrmailFfi.inline a

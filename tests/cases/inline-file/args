@@ -1,0 +1,5 @@
+# The served logo inline in the HTML: the way to place a logo.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'Plain text\n' Html=world User=alice Password=secret
+      Attach1='inline-file|logo.png|||/logo.png')

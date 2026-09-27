@@ -1,0 +1,5 @@
+--- check
+refused: Attachment "x.bin": no MIME type is known for /untyped; give one in its file directive
+--- server
+(no client connected)
+--- application log

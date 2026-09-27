@@ -19,7 +19,10 @@ after the body, base64-encoded, in the order given.  `Attachment.inline`
 marks one as a part of the HTML instead, a logo say, and gives the `cid:`
 url the HTML refers to it by; the part then goes with the HTML, in a
 `multipart/related`, which every client shows where remote images are
-blocked.
+blocked.  `Attachment.fromFile` takes the bytes and the MIME type from a
+`file` directive of the application's `.urp`, by the served path, so its
+logo is attached from the copy the application already serves;
+`examples/queue.ur` does that.
 
 Building
 --------
