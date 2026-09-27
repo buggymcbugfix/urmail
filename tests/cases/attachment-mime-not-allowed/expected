@@ -1,0 +1,5 @@
+--- check
+refused: Attachment "doc.pdf": MIME type application/pdf is not allowed by the project file
+--- server
+(no client connected)
+--- application log
