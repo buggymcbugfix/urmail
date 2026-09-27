@@ -630,6 +630,14 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
   curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
   curl_easy_setopt(curl, CURLOPT_URL, j->server);
+  // A URL without a scheme is SMTP (libcurl would otherwise guess from the
+  // host name, HTTP unless it starts with "smtp."), and nothing else is.
+  curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "smtp");
+#if LIBCURL_VERSION_NUM >= 0x075500
+  curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "smtp,smtps");
+#else
+  curl_easy_setopt(curl, CURLOPT_PROTOCOLS, (long)(CURLPROTO_SMTP | CURLPROTO_SMTPS));
+#endif
 
   switch (j->tls) {
   case uw_UrmailFfi_Plain:
