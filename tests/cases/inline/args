@@ -1,0 +1,6 @@
+# An inline part on a message with an HTML part: multipart/related of the
+# alternative and the part, whose Content-ID the HTML's <img> refers to.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'Plain text\n' Html=world User=alice Password=secret
+      Attach1='inline|logo.png||image/png|not really a png')

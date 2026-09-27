@@ -147,6 +147,8 @@ struct attachment {
   uw_Basis_string utf8_name;   // the filename*= beside it, or NULL
   uw_Basis_string type;        // type/subtype
   uw_Basis_blob data;
+  int is_inline;               // referred to from the HTML part by its Content-ID
+  char content_id[24];         // for an inline part: hex@urmail, without the brackets
   const char *error;           // the first problem a check found, or NULL
 };
 
@@ -215,6 +217,8 @@ uw_UrmailFfi_attachment uw_UrmailFfi_attach(uw_context ctx, uw_Basis_string asci
   a->utf8_name = utf8 ? uw_strdup(ctx, utf8) : NULL;
   a->type = uw_strdup(ctx, type);
   a->data = data;
+  a->is_inline = 0;
+  a->content_id[0] = 0;
   if (!(error = ascii_name(ascii)) && !(utf8 && (error = utf8_name(utf8))))
     error = mime_type(type);
   a->error = error;
@@ -223,6 +227,46 @@ uw_UrmailFfi_attachment uw_UrmailFfi_attach(uw_context ctx, uw_Basis_string asci
 
 uw_Basis_string uw_UrmailFfi_attachmentProblem(uw_context ctx, uw_UrmailFfi_attachment a) {
   return a->error ? uw_strdup(ctx, (char *)a->error) : NULL;
+}
+
+// An inline part's Content-ID: a function of the part (FNV-1a over its name,
+// type and bytes), so that `inline` is pure and the cid: URL it hands out is
+// the one assemble() writes.
+static void content_id(uw_UrmailFfi_attachment a) {
+  unsigned long long h = 14695981039346656037ULL;
+  const unsigned char *p;
+  size_t i;
+
+  for (p = (const unsigned char *)a->ascii_name; ; ++p) {
+    h = (h ^ *p) * 1099511628211ULL;
+    if (!*p) break;
+  }
+  for (p = (const unsigned char *)a->type; ; ++p) {
+    h = (h ^ *p) * 1099511628211ULL;
+    if (!*p) break;
+  }
+  for (i = 0, p = (const unsigned char *)a->data.data; i < a->data.size; ++i, ++p)
+    h = (h ^ *p) * 1099511628211ULL;
+  snprintf(a->content_id, sizeof a->content_id, "%016llx@urmail", h);
+}
+
+uw_UrmailFfi_attachment uw_UrmailFfi_inline(uw_context ctx, uw_UrmailFfi_attachment a) {
+  uw_UrmailFfi_attachment a2 = uw_malloc(ctx, sizeof(struct attachment));
+
+  *a2 = *a;
+  a2->is_inline = 1;
+  content_id(a2);
+  return a2;
+}
+
+uw_Basis_string uw_UrmailFfi_cid(uw_context ctx, uw_UrmailFfi_attachment a) {
+  uw_Basis_string url;
+
+  if (!a->is_inline)
+    uw_error(ctx, FATAL, "urmail: cid of an attachment that is not inline");
+  url = uw_malloc(ctx, 4 + strlen(a->content_id) + 1);
+  sprintf(url, "cid:%s", a->content_id);
+  return url;
 }
 
 // The list, newest first; send reads it backwards.
@@ -366,6 +410,7 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
 // quoted-printable an '=' is followed by two hex digits or a line break, and
 // base64 has no '_'), so no boundary starting with it can occur in a part.
 #define ALTERNATIVE_BOUNDARY "=_urmail_alternative"
+#define RELATED_BOUNDARY "=_urmail_related"
 #define MIXED_BOUNDARY "=_urmail_mixed"
 
 /* ---- Header encoding: RFC 2047 encoded-words for what is not ASCII, and
@@ -590,9 +635,13 @@ static void buf_extended(uw_context ctx, buf *b, const char *s) {
 // ASCII name is the filename= every client reads; the UTF-8 name, when
 // there is one, is a filename*= (RFC 2231) beside it, first, since a parser
 // that takes the first of the two is then right, and on a line of its own.
+// An inline part has the Content-ID the HTML refers to.
 static void buf_attachment(uw_context ctx, buf *b, uw_UrmailFfi_attachment a) {
   buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, a->type); buf_str(ctx, b, "\r\n");
-  buf_str(ctx, b, "Content-Disposition: attachment;");
+  if (a->is_inline) {
+    buf_str(ctx, b, "Content-ID: <"); buf_str(ctx, b, a->content_id); buf_str(ctx, b, ">\r\n");
+  }
+  buf_str(ctx, b, a->is_inline ? "Content-Disposition: inline;" : "Content-Disposition: attachment;");
   if (a->utf8_name) {
     buf_str(ctx, b, " filename*=");
     buf_extended(ctx, b, a->utf8_name);
@@ -636,26 +685,38 @@ static void buf_body(uw_context ctx, buf *b, uw_Basis_string body, uw_Basis_stri
   }
 }
 
-// The attachments in the order they were given: the list is newest first.
-static size_t in_order(uw_UrmailFfi_attachments l, uw_UrmailFfi_attachment **out) {
+// The inline or the attached parts of the list, in the order they were
+// given: the list is newest first.
+static size_t in_order(uw_UrmailFfi_attachments l, int is_inline, uw_UrmailFfi_attachment **out) {
   size_t n = 0, i;
   uw_UrmailFfi_attachments p;
 
   for (p = l; p; p = p->next)
-    ++n;
+    if (p->a->is_inline == is_inline)
+      ++n;
   *out = n ? malloc(n * sizeof **out) : NULL;
   for (p = l, i = n; p; p = p->next)
-    (*out)[--i] = p->a;
+    if (p->a->is_inline == is_inline)
+      (*out)[--i] = p->a;
   return n;
 }
 
-// Assemble the message: headers, then the body, or when there are
-// attachments a multipart/mixed of the body and one part per attachment.
+// Whether any part of the list is inline.
+static int has_inline(uw_UrmailFfi_attachments l) {
+  for (; l; l = l->next)
+    if (l->a->is_inline)
+      return 1;
+  return 0;
+}
+
+// Assemble the message: headers, then the body; with inline parts, a
+// multipart/related of the body and those; with attached parts, a
+// multipart/mixed of all that and those.
 static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
                      uw_Basis_string body, uw_Basis_string xbody, uw_UrmailFfi_attachments attachments) {
   char date[64], message_id[512];
-  uw_UrmailFfi_attachment *as;
-  size_t n, i;
+  uw_UrmailFfi_attachment *inlines, *attached;
+  size_t n_inline, n_attached, i;
 
   date_header(date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
@@ -682,19 +743,30 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
     buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
   }
 
-  n = in_order(attachments, &as);
-  if (n) {
+  n_inline = in_order(attachments, 1, &inlines);
+  n_attached = in_order(attachments, 0, &attached);
+  if (n_attached)
     buf_str(ctx, b, "Content-Type: multipart/mixed; boundary=\"" MIXED_BOUNDARY "\"\r\n\r\n"
                     "--" MIXED_BOUNDARY "\r\n");
-  }
+  if (n_inline)  // RFC 2387 wants the root's type named; with an inline part there is an HTML part
+    buf_str(ctx, b, "Content-Type: multipart/related; type=\"multipart/alternative\";\r\n"
+                    " boundary=\"" RELATED_BOUNDARY "\"\r\n\r\n"
+                    "--" RELATED_BOUNDARY "\r\n");
   buf_body(ctx, b, body, xbody);
-  for (i = 0; i < n; ++i) {
-    buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "\r\n");
-    buf_attachment(ctx, b, as[i]);
+  for (i = 0; i < n_inline; ++i) {
+    buf_str(ctx, b, "\r\n--" RELATED_BOUNDARY "\r\n");
+    buf_attachment(ctx, b, inlines[i]);
   }
-  if (n)
+  if (n_inline)
+    buf_str(ctx, b, "\r\n--" RELATED_BOUNDARY "--");
+  for (i = 0; i < n_attached; ++i) {
+    buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "\r\n");
+    buf_attachment(ctx, b, attached[i]);
+  }
+  if (n_attached)
     buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "--");
-  free(as);
+  free(inlines);
+  free(attached);
 }
 
 /* ---- Delivery: a persistent connection per server and account, one send at
@@ -998,6 +1070,14 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
   uw_UrmailFfi_sendStatus r = uw_malloc(ctx, sizeof(struct uw_UrmailFfi_sendStatus));
 
   refuse(ctx, h, attachments);
+  if (!xbody && has_inline(attachments)) {
+    // Nothing would refer to the part: a mistake of the caller, reported
+    // as the status rather than as an error, which would leave the message
+    // claimed and unsent; Refused, since sending it again will not help.
+    r->tag = uw_UrmailFfi_Refused;
+    r->data.uw_Refused = uw_strdup(ctx, "inline attachment without an HTML part");
+    return r;
+  }
   assemble(ctx, &b, h, body, xbody, attachments);
 
   j.h = h;
