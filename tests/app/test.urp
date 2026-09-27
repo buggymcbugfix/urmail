@@ -1,4 +1,7 @@
 library ..
+mimeTypes mime.types
+file /logo.png logo.png
+file /untyped untyped.bin
 allow url /Test/status
 safeGet Test/status
 minHeap 65536
