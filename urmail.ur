@@ -1,4 +1,5 @@
 type headers = UrmailFfi.headers
+type attachment = UrmailFfi.attachment
 
 datatype tls = datatype UrmailFfi.tls
 datatype sendStatus = datatype UrmailFfi.sendStatus
@@ -27,5 +28,20 @@ fun mkHeaders r =
 		| Some e => Failure <xml>{[e]}</xml>
 	end
 
+structure Attachment = struct
+	fun checked name a =
+		case UrmailFfi.attachmentProblem a of
+		| None => Success a
+		| Some e => Failure <xml>Attachment "{[name]}": {[e]}</xml>
+
+	fun fromBlob r =
+		case checkMime r.MimeType of
+		| None =>
+			Failure <xml>Attachment "{[r.AsciiName]}": MIME type {[r.MimeType]} is not allowed by the project file</xml>
+		| Some _ =>
+			checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name r.MimeType r.Data)
+end
+
 fun send r =
 	UrmailFfi.send r.ServerUrl r.Tls r.User r.Password r.Headers r.Text r.Html
+		(List.foldl UrmailFfi.addAttachment UrmailFfi.noAttachments r.Attachments)

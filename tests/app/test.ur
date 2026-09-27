@@ -1,18 +1,21 @@
 (* The test application.  The runner posts a message's fields to `queue`,
    which stores them for the io task below; the task builds the headers with
-   Urmail.mkHeaders, sends the message with Urmail.send and records the status,
-   to be read back from `status`.  `check` shows what Urmail.mkHeaders makes
-   of the fields, for the cases about the header checks.  The fake SMTP server
+   Urmail.mkHeaders and the attachments with Urmail.Attachment, sends the
+   message with Urmail.send and records the status, to be read back from
+   `status`.  `check` shows what Urmail.mkHeaders and Urmail.Attachment make
+   of the fields, for the cases about the checks.  The fake SMTP server
    records what arrives. *)
 
 type fields = { Server : string, Tls : string, Ca : string, User : string, Password : string,
                 From : string, To : string, Cc : string, Bcc : string, Subject : string,
-                Body : string, Html : string, MessageId : string, UserAgent : string }
+                Body : string, Html : string, MessageId : string, UserAgent : string,
+                Attach1 : string, Attach2 : string, Attach3 : string }
 
 sequence jobIds
 table job : { Id : int, Server : string, Tls : string, Ca : string, User : string, Password : string,
               From : string, To : string, Cc : string, Bcc : string, Subject : string,
               Body : string, Html : string, MessageId : string, UserAgent : string,
+              Attach1 : string, Attach2 : string, Attach3 : string,
               Status : option string }
   PRIMARY KEY Id
 
@@ -30,6 +33,26 @@ fun headers [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, MessageId, Us
                     MessageId = string, UserAgent = string] ++ rest)) : result Urmail.headers =
     Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = opt r.UserAgent,
                       MessageId = opt r.MessageId, To = addrs r.To, Cc = addrs r.Cc, Bcc = addrs r.Bcc}
+
+(* An attachment as the runner spells it, KIND|ASCII|UTF8|TYPE|DATA, an
+   empty UTF8 meaning none: with KIND blob, DATA is the text of the file. *)
+fun fields (s : string) : list string =
+    case String.split s #"|" of
+        None => s :: []
+      | Some (a, rest) => a :: fields rest
+
+fun attachment (spec : string) : result Urmail.attachment =
+    case fields spec of
+        "blob" :: ascii :: utf8 :: typ :: data :: [] =>
+        Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
+                                    Data = textBlob data}
+      | _ => error <xml>Bad attachment spec: {[spec]}</xml>
+
+(* The attachments of the fields, in order; an empty field is none. *)
+fun attachments [rest ::: {Type}] [rest ~ [Attach1, Attach2, Attach3]]
+                (r : $([Attach1 = string, Attach2 = string, Attach3 = string] ++ rest))
+    : result (list Urmail.attachment) =
+    List.mapM attachment (List.filter (fn s => s <> "") (r.Attach1 :: r.Attach2 :: r.Attach3 :: []))
 
 fun html [rest ::: {Type}] [rest ~ [Html]] (r : $([Html = string] ++ rest)) : option page =
     if r.Html = "" then None
@@ -53,25 +76,28 @@ fun showStatus s =
 fun queue (r : fields) =
     id <- nextval jobIds;
     dml (INSERT INTO job (Id, Server, Tls, Ca, User, Password, From, To, Cc, Bcc, Subject, Body,
-                          Html, MessageId, UserAgent, Status)
+                          Html, MessageId, UserAgent, Attach1, Attach2, Attach3, Status)
          VALUES ({[id]}, {[r.Server]}, {[r.Tls]}, {[r.Ca]}, {[r.User]}, {[r.Password]}, {[r.From]},
                  {[r.To]}, {[r.Cc]}, {[r.Bcc]}, {[r.Subject]}, {[r.Body]}, {[r.Html]},
-                 {[r.MessageId]}, {[r.UserAgent]}, NULL));
+                 {[r.MessageId]}, {[r.UserAgent]}, {[r.Attach1]}, {[r.Attach2]}, {[r.Attach3]}, NULL));
     return <xml><body>queued</body></xml>
 
-(* An application checks the headers in the transaction that claims the job
-   (see examples/queue.ur); here a refusal is just recorded, and the cases
-   about the checks post to `check` instead. *)
+(* An application checks the headers and the attachments in the transaction
+   that claims the job (see examples/queue.ur); here a refusal is just
+   recorded, and the cases about the checks post to `check` instead. *)
 task periodic 1 = fn () =>
     jobs <- runTransaction (queryL1 (SELECT * FROM job WHERE job.Status IS NULL ORDER BY job.Id));
     _ <- List.mapM (fn j =>
                        s <- (case headers j of
                                  Failure e => return ("Refused: " ^ show e)
                                | Success h =>
-                                 s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
-                                                   Password = j.Password, Headers = h, Text = j.Body,
-                                                   Html = html j};
-                                 return (showStatus s));
+                                 case attachments j of
+                                     Failure e => return ("Refused: " ^ show e)
+                                   | Success as =>
+                                     s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
+                                                       Password = j.Password, Headers = h, Text = j.Body,
+                                                       Html = html j, Attachments = as};
+                                     return (showStatus s));
                        runTransaction (dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[j.Id]})))
                    jobs;
     return ()
@@ -81,11 +107,14 @@ fun status () =
                     (fn r => <xml>{[Option.get "" r.Status]}<br/></xml>);
     return <xml><body>{rows}</body></xml>
 
-(* What Urmail.mkHeaders makes of the fields. *)
+(* What Urmail.mkHeaders and Urmail.Attachment make of the fields. *)
 fun check (r : fields) =
     return <xml><body>{case headers r of
-                           Success _ => <xml>ok</xml>
-                         | Failure e => <xml>refused: {e}</xml>}</body></xml>
+                           Failure e => <xml>refused: {e}</xml>
+                         | Success _ =>
+                           case attachments r of
+                               Failure e => <xml>refused: {e}</xml>
+                             | Success _ => <xml>ok</xml>}</body></xml>
 
 (* The forms give the handlers their input names; the runner posts to them
    directly. *)
@@ -94,12 +123,14 @@ fun main () : transaction page = return <xml><body>
     <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
     <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
     <textarea{#Body}/> <textbox{#Html}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
+    <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
     <submit action={queue}/>
   </form>
   <form>
     <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
     <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
     <textarea{#Body}/> <textbox{#Html}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
+    <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
     <submit action={check}/>
   </form>
 </body></xml>

@@ -1,0 +1,5 @@
+--- check
+refused: Attachment "../etc/passwd": name contains '/' or '\'
+--- server
+(no client connected)
+--- application log

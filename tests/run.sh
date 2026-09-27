@@ -11,7 +11,8 @@
 #
 #   args        shell lines: mode=... (smtpd.py's mode), tls=... (none,
 #               starttls, starttls-ca, starttls-noverify: what the client is
-#               told), form=(...) (the fields of the request, curl -d style),
+#               told), form=(...) (the fields of the request, curl -d style;
+#               Attach1..3 spell attachments, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
 #               serves up to N sessions), url=smtp|bare|http (how the
 #               server is named: smtp://host:port, host:port alone, or an
@@ -131,7 +132,7 @@ for case in "${cases[@]}"; do
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
              --data-urlencode "Server=$server"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
-  for f in From To Cc Bcc Subject Body Html User Password MessageId UserAgent; do
+  for f in From To Cc Bcc Subject Body Html User Password MessageId UserAgent Attach1 Attach2 Attach3; do
     v=
     for kv in "${form[@]}"; do
       case $kv in "$f="*) v=${kv#*=} ;; esac

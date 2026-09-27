@@ -11,6 +11,12 @@ claims it in one transaction, sends, and records the status in another.
 `tests/app/test.ur` is such an application.  Needs an Ur/Web with the `io`
 monad.
 
+Attachments go the same way: `Attachment.fromBlob` checks one (the name
+the recipient sees, in ASCII and optionally in UTF-8; the MIME type, which
+the application's `.urp` must `allow mime`; the bytes), so that a bad one
+is refused where the headers are, and `send` takes the list and puts them
+after the body, base64-encoded, in the order given.
+
 Building
 --------
 
