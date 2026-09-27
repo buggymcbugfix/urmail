@@ -46,6 +46,7 @@ fun tls [rest ::: {Type}] [rest ~ [Tls, Ca]] (r : $([Tls = string, Ca = string] 
 fun showStatus s =
     case s of
         Urmail.Sent => "Sent"
+      | Urmail.Refused m => "Refused: " ^ m
       | Urmail.NotSent m => "NotSent: " ^ m
       | Urmail.MaybeSent m => "MaybeSent: " ^ m
 

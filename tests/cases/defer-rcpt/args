@@ -1,4 +1,4 @@
-# The server refuses the message after DATA (554): refused, no retry.
-mode=reject-data
+# The server declines the recipient for now (450): not sent, worth a retry.
+mode=defer-rcpt
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

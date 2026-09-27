@@ -42,8 +42,11 @@ fun record id status =
     case status of
         Urmail.Sent =>
         dml (UPDATE queue SET Status = {[Some "sent"]} WHERE Id = {[id]})
+      | Urmail.Refused why =>
+        dml (UPDATE queue SET Status = {[Some ("refused: " ^ why)]} WHERE Id = {[id]})
       | Urmail.NotSent why =>
-        dml (UPDATE queue SET Status = {[Some ("not sent: " ^ why)]} WHERE Id = {[id]})
+        (* Declined for now, or no connection: back into the queue. *)
+        dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
       | Urmail.MaybeSent _ =>
         (* Back into the queue: sent again, with the same Message-ID. *)
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})

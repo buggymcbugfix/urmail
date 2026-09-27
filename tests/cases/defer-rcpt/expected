@@ -1,5 +1,5 @@
 --- status
-Refused: server refused: Failed sending data to the peer (SMTP 550)
+NotSent: server declined for now: Failed sending data to the peer (SMTP 450)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>
@@ -13,8 +13,8 @@ C: [AUTH PLAIN credentials: alice secret]
 S: 235 ok
 C: MAIL FROM:<alice@example.com>
 S: 250 ok
-C: RCPT TO:<nobody@example.net>
-S: 550 no such user
+C: RCPT TO:<bob@example.net>
+S: 450 try again later
 C: QUIT
 S: 221 bye
 --- application log

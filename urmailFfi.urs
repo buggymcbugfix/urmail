@@ -32,10 +32,15 @@ datatype tls =
 (* What became of a message. *)
 datatype sendStatus =
     Sent
-  | NotSent of string    (* Certainly not delivered: the server refused it (a
-                            recipient, or the message), or the connection
-                            failed before any of the message was uploaded.
-                            The string says what happened. *)
+  | Refused of string    (* The server refused it for good (a 5xx reply: no
+                            such recipient, message rejected); sending it
+                            again will not help.  The string says what the
+                            server said. *)
+  | NotSent of string    (* Not delivered, for now: the server declined with
+                            a 4xx reply (mailbox busy, storage short,
+                            greylisting), or the connection failed before
+                            any of the message was uploaded.  Worth another
+                            try later. *)
   | MaybeSent of string  (* The connection was lost after the upload began
                             and the server's verdict never arrived: the
                             server may or may not have accepted the message.
