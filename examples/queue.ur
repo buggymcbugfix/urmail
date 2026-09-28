@@ -23,33 +23,33 @@ fun enqueue r =
          VALUES ({[id]}, {[r.From]}, {[r.To]}, {[r.Subject]}, {[r.Text]}, FALSE, NULL));
     return <xml><body>Queued as #{[id]}</body></xml>
 
-(* The logo, checked like the headers.  The `file` directive in queue.urp
-   makes the bytes and the MIME type the compiler's. *)
+(* The logo: the `file` directive in queue.urp makes the bytes and the MIME
+   type the compiler's, and blessing it says that a refusal (nothing served
+   at the path) is a mistake here, to be reported as a fatal error naming
+   this line, not a status of the message. *)
 val logo =
-    Urmail.Attachment.fromFile {AsciiName = "logo.png", Utf8Name = None, ServedPath = "/logo.png"}
+    Urmail.Attachment.blessServedFile _LOC_ (Urmail.Attachment.asciiName "logo.png") "/logo.png"
 
-(* Step 1, a transaction: the next message, claimed, with its headers and
-   its attachment checked. *)
+(* Step 1, a transaction: the next message, claimed, with its headers
+   checked. *)
 val claim =
     r <- oneOrNoRows1 (SELECT * FROM queue WHERE NOT queue.Claimed ORDER BY queue.Id LIMIT 1);
     case r of
         None => return None
       | Some r =>
         dml (UPDATE queue SET Claimed = TRUE WHERE Id = {[r.Id]});
-        let
-            val checked =
-                h <- Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = None,
-                                       MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
-                                       To = r.To :: [], Cc = [], Bcc = []};
-                l <- logo;
-                return (h, Urmail.Attachment.inline l)
-        in
-            case checked of
-                Failure e =>
-                dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
-                return None
-              | Success (h, (l, logoUrl)) => return (Some (r, h, l, logoUrl))
-        end
+        case Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = None,
+                               MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
+                               To = r.To :: [], Cc = [], Bcc = []} of
+            Failure e =>
+            dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
+            return None
+          | Success h =>
+            let
+                val (l, logoUrl) = Urmail.Attachment.inline logo
+            in
+                return (Some (r, h, l, logoUrl))
+            end
 
 (* Step 3, another transaction: what became of it. *)
 fun record id status =

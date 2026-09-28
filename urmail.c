@@ -229,6 +229,10 @@ uw_Basis_string uw_UrmailFfi_attachmentProblem(uw_context ctx, uw_UrmailFfi_atta
   return a->error ? uw_strdup(ctx, (char *)a->error) : NULL;
 }
 
+uw_UrmailFfi_attachment uw_UrmailFfi_refuse(uw_context ctx, uw_Basis_string loc, uw_Basis_string what) {
+  uw_error(ctx, FATAL, "%s: %s", uw_Basis_htmlifyString(ctx, loc), uw_Basis_htmlifyString(ctx, what));
+}
+
 // An inline part's Content-ID: a function of the part (FNV-1a over its name,
 // type and bytes), so that `inline` is pure and the cid: URL it hands out is
 // the one assemble() writes.

@@ -26,6 +26,11 @@ type attachment
 val attach : string -> option string -> string -> blob -> attachment
 val attachmentProblem : attachment -> option string
 
+(* A fatal error, for an attachment the caller was sure of and the checks
+   refused: the location the caller gave, and what is wrong.  Never
+   returns. *)
+val refuse : string -> string -> attachment
+
 (* The same part marked inline, to be referred to from the HTML part by
    the cid: URL [cid] gives for it.  The Content-ID is a function of the
    part. *)
