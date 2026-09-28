@@ -1,0 +1,6 @@
+--- check
+Fatal ErrorFatal error: test.ur: Attachment "x.png": no file directive serves /nope.png
+--- server
+(no client connected)
+--- application log
+Fatal error: test.ur: Attachment "x.png": no file directive serves /nope.png

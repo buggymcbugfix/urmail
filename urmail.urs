@@ -3,8 +3,8 @@
 (* The headers of a message, as [mkHeaders] checked them. *)
 type headers
 
-(* An attachment, as [Attachment.fromBlob] or [Attachment.fromFile] checked
-   it; or an inline part of the HTML, after [Attachment.inline]. *)
+(* An attachment, as [Attachment.fromBlob] or [Attachment.fromServedFile]
+   checked it; or an inline part of the HTML, after [Attachment.inline]. *)
 type attachment
 
 datatype tls = datatype UrmailFfi.tls
@@ -30,33 +30,52 @@ val mkHeaders :
 	result headers
 
 structure Attachment : sig
-	(* An attachment, or what is wrong with it.  AsciiName is the name every
-	   client reads (the filename= parameter): printable ASCII, not empty, no
-	   '/' or '\', at most 255 bytes.  Utf8Name, if given, is sent beside it
-	   for the clients that read RFC 2231 (filename*=), under the same limits
-	   but for the ASCII one.  MimeType is type/subtype, and the project file
-	   must allow it (`allow mime`), as it must for Basis.checkMime. *)
-	val fromBlob :
+	(* The name the recipient sees.  AsciiName is the one every client reads
+	   (the filename= parameter): printable ASCII, not empty, no '/' or '\',
+	   at most 255 bytes.  Utf8Name, if given, is sent beside it for the
+	   clients that read RFC 2231 (filename*=), under the same limits but for
+	   the ASCII one. *)
+	type name =
 		{
 			AsciiName : string,
-			Utf8Name : option string,
-			MimeType : string,
-			Data : blob
-		} ->
+			Utf8Name : option string
+		}
+
+	val asciiName : string -> name
+
+	(* An attachment, or what is wrong with it.  MimeType is type/subtype,
+	   and the project file must allow it (`allow mime`), as it must for
+	   Basis.checkMime. *)
+	val fromBlob :
+		name ->
+		{MimeType : string, Data : blob} ->
 		result attachment
+
+	(* The same for an attachment the caller is sure of: what [fromBlob]
+	   would refuse is a fatal error, prefixed with the first argument,
+	   meant to be _LOC_, so that the error names the call. *)
+	val blessBlob :
+		string (* _LOC_ *) ->
+		name ->
+		{MimeType : string, Data : blob} ->
+		attachment
 
 	(* An attachment holding a file the application serves by a `file`
 	   directive of its project file, by the path it is served at: the
 	   bytes and the MIME type are the directive's, the type allowed by
 	   being declared there.  Fails when nothing is served at the path or
 	   no MIME type is known for it. *)
-	val fromFile :
-		{
-			AsciiName : string,
-			Utf8Name : option string,
-			ServedPath : string
-		} ->
+	val fromServedFile :
+		name ->
+		string (* servedPath *) ->
 		result attachment
+
+	(* [fromServedFile] for a caller sure of the path, as [blessBlob]. *)
+	val blessServedFile :
+		string (* _LOC_ *) ->
+		name ->
+		string (* servedPath *) ->
+		attachment
 
 	(* The same part, marked inline, and the cid: url the HTML part refers
 	   to it by, for <img src={u}/> and the like.  The Content-ID is a

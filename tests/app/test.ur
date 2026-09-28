@@ -38,7 +38,10 @@ fun headers [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, MessageId, Us
    empty UTF8 meaning none.  KIND blob: DATA is the text of the file.  KIND
    file: the file is one of this project's `file` directives, DATA its
    served path, and TYPE is not used.  inline and inline-file: the same, and
-   the part is inline, its url given to the HTML part. *)
+   the part is inline, its url given to the HTML part.  bless-blob and
+   bless-file: through the bless variants, whose refusal is a fatal error
+   prefixed with "test.ur" (a constant, where an application would pass
+   _LOC_, so that the transcripts do not move with this file). *)
 fun fields (s : string) : list string =
     case String.split s #"|" of
         None => s :: []
@@ -47,11 +50,16 @@ fun fields (s : string) : list string =
 fun attachment (spec : string) : result (Urmail.attachment * option url) =
     let
         fun make kind ascii utf8 typ data =
-            case kind of
-                "blob" => Urmail.Attachment.fromBlob {AsciiName = ascii, Utf8Name = opt utf8, MimeType = typ,
-                                                      Data = textBlob data}
-              | "file" => Urmail.Attachment.fromFile {AsciiName = ascii, Utf8Name = opt utf8, ServedPath = data}
-              | _ => error <xml>Bad attachment kind: {[kind]}</xml>
+            let
+                val name = {AsciiName = ascii, Utf8Name = opt utf8}
+            in
+                case kind of
+                    "blob" => Urmail.Attachment.fromBlob name {MimeType = typ, Data = textBlob data}
+                  | "file" => Urmail.Attachment.fromServedFile name data
+                  | "bless-blob" => Success (Urmail.Attachment.blessBlob "test.ur" name {MimeType = typ, Data = textBlob data})
+                  | "bless-file" => Success (Urmail.Attachment.blessServedFile "test.ur" name data)
+                  | _ => error <xml>Bad attachment kind: {[kind]}</xml>
+            end
     in
         case fields spec of
             kind :: ascii :: utf8 :: typ :: data :: [] =>

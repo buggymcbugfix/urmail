@@ -1,0 +1,4 @@
+# blessBlob on a name with a slash: a fatal error, prefixed with what the
+# caller gave (an application gives _LOC_; the test application a constant).
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=x Attach1='bless-blob|../etc/passwd||text/plain|x')

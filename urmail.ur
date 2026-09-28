@@ -29,26 +29,50 @@ fun mkHeaders r =
 	end
 
 structure Attachment = struct
-	fun checked name a =
+	type name = {AsciiName : string, Utf8Name : option string}
+
+	fun asciiName s = {AsciiName = s, Utf8Name = None}
+
+	(* An attachment, or what is wrong with it, as text: a Failure for the
+	   from* functions, a fatal error for the bless* ones. *)
+	datatype checked = Ok of attachment | Bad of string
+
+	fun named (n : name) what = "Attachment \"" ^ n.AsciiName ^ "\": " ^ what
+
+	fun built (n : name) a =
 		case UrmailFfi.attachmentProblem a of
-		| None => Success a
-		| Some e => Failure <xml>Attachment "{[name]}": {[e]}</xml>
+		| None => Ok a
+		| Some e => Bad (named n e)
 
-	fun fromBlob r =
+	fun blob (n : name) r =
 		case checkMime r.MimeType of
-		| None =>
-			Failure <xml>Attachment "{[r.AsciiName]}": MIME type {[r.MimeType]} is not allowed by the project file</xml>
-		| Some _ =>
-			checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name r.MimeType r.Data)
+		| None => Bad (named n ("MIME type " ^ r.MimeType ^ " is not allowed by the project file"))
+		| Some _ => built n (UrmailFfi.attach n.AsciiName n.Utf8Name r.MimeType r.Data)
 
-	fun fromFile r =
-		case checkServedFile r.ServedPath of
-		| None => Failure <xml>Attachment "{[r.AsciiName]}": no file directive serves {[r.ServedPath]}</xml>
+	fun served (n : name) path =
+		case checkServedFile path of
+		| None => Bad (named n ("no file directive serves " ^ path))
 		| Some f =>
 			if fileMimeType f = "" then
-				Failure <xml>Attachment "{[r.AsciiName]}": no MIME type is known for {[r.ServedPath]}; give one in its file directive</xml>
+				Bad (named n ("no MIME type is known for " ^ path ^ "; give one in its file directive"))
 			else
-				checked r.AsciiName (UrmailFfi.attach r.AsciiName r.Utf8Name (fileMimeType f) (fileData f))
+				built n (UrmailFfi.attach n.AsciiName n.Utf8Name (fileMimeType f) (fileData f))
+
+	fun result c =
+		case c of
+		| Ok a => Success a
+		| Bad e => Failure <xml>{[e]}</xml>
+
+	(* A refusal of what the caller was sure of is the caller's mistake. *)
+	fun bless loc c =
+		case c of
+		| Ok a => a
+		| Bad e => UrmailFfi.refuse loc e
+
+	fun fromBlob n r = result (blob n r)
+	fun blessBlob loc n r = bless loc (blob n r)
+	fun fromServedFile n path = result (served n path)
+	fun blessServedFile loc n path = bless loc (served n path)
 
 	fun inline a =
 		let

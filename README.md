@@ -15,14 +15,16 @@ Attachments go the same way: `Attachment.fromBlob` checks one (the name
 the recipient sees, in ASCII and optionally in UTF-8; the MIME type, which
 the application's `.urp` must `allow mime`; the bytes), so that a bad one
 is refused where the headers are, and `send` takes the list and puts them
-after the body, base64-encoded, in the order given.  `Attachment.inline`
+after the body, base64-encoded, in the order given.  `Attachment.blessBlob`
+is for one the application is sure of: a refusal is then a fatal error
+naming the call (its first argument, `_LOC_`), not a status.  `Attachment.inline`
 marks one as a part of the HTML instead, a logo say, and gives the `cid:`
 url the HTML refers to it by; the part then goes with the HTML, in a
 `multipart/related`, which every client shows where remote images are
-blocked.  `Attachment.fromFile` takes the bytes and the MIME type from a
-`file` directive of the application's `.urp`, by the served path, so its
-logo is attached from the copy the application already serves;
-`examples/queue.ur` does that.
+blocked.  `Attachment.fromServedFile` (and `blessServedFile`) takes the
+bytes and the MIME type from a `file` directive of the application's
+`.urp`, by the served path, so its logo is attached from the copy the
+application already serves; `examples/queue.ur` does that.
 
 Building
 --------
