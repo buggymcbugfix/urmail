@@ -40,8 +40,17 @@ EXTRA_DIST = \
 CLEANFILES = config.urp urmail.pc tests/config.urp
 
 # The tests run against the library as built in this tree (tests/config.urp),
-# with the urweb named by URWEB, else the one on the PATH.
+# with the urweb named by URWEB, else the one on the PATH, and build under
+# this tree's tests/out.
 check-local:
-	$(SHELL) $(top_srcdir)/tests/run.sh
+	BUILDDIR=$(abs_top_builddir) $(SHELL) $(top_srcdir)/tests/run.sh
 
-.PHONY: check-local
+distclean-local:
+	rm -rf tests/out
+
+# tests goes into the distribution as a directory; what a test run in the
+# source tree or configure left there is not part of it.
+dist-hook:
+	rm -rf $(distdir)/tests/out $(distdir)/tests/app/test.exe $(distdir)/tests/config.urp
+
+.PHONY: check-local distclean-local dist-hook

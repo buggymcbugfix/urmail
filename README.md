@@ -68,7 +68,13 @@ with an `args` file describing the server's behaviour, the TLS setting and
 the message; `-u` rewrites the expected files.  `URWEB` names the compiler
 to use (with the flags in `URWEB_FLAGS`), otherwise the one on the PATH.
 The runner needs python3, openssl (a self-signed certificate for STARTTLS),
-curl and sqlite3 (the application's queue).
+curl and sqlite3 (the application's queue).  What it builds lands under
+`tests/out` of the build tree (`BUILDDIR`; the source tree unless set, and
+`make check` sets it), so a build tree apart from the source tree works,
+and `make distcheck` with it.  An Ur/Web installed outside the loader's
+path, an in-tree build of the compiler installed under its `out/` say,
+needs `LD_LIBRARY_PATH` set to its `lib` directory, or the application does
+not start; the runner shows the loader's message then.
 
 Debugging
 ---------

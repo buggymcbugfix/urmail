@@ -32,14 +32,20 @@
 # The compiler is the one URWEB names, run with the flags in URWEB_FLAGS if
 # set, or else `urweb` on the PATH.  Needs python3, openssl, curl and sqlite3
 # (the application keeps its queue in a database, fresh for every case).  The
-# library must have been built (tests/config.urp names it).  Exit status: 0
-# every case passed, 1 some failed, 2 could not run.
+# library must have been built: BUILDDIR is the build tree (the source tree
+# unless set, as `make check` sets it), and its tests/config.urp names the
+# library.  Everything the run makes lands under the build tree's tests/out:
+# copies of the application and the examples, whose lib.urp names the
+# sources and the library by absolute path, so that a build tree apart from
+# the source tree works and nothing is written into the source tree.  Exit
+# status: 0 every case passed, 1 some failed, 2 could not run.
 
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(cd "$here/.." && pwd)
-out=$here/out
+build=${BUILDDIR:-$top}
+out=$build/tests/out
 urweb=${URWEB:-urweb}
 urweb_flags=${URWEB_FLAGS:-}
 
@@ -52,7 +58,7 @@ for tool in python3 openssl curl sqlite3; do
   command -v "$tool" >/dev/null || die "$tool is needed"
 done
 command -v "$urweb" >/dev/null || die "no urweb: set URWEB or put it on the PATH"
-[ -f "$here/config.urp" ] || die "tests/config.urp is missing: run configure and make first"
+[ -f "$build/tests/config.urp" ] || die "tests/config.urp is missing: run configure and make first"
 
 if [ $# -gt 0 ]; then
   cases=("$@")
@@ -64,6 +70,14 @@ fi
 rm -rf "$out"
 mkdir -p "$out"
 
+# The application and the examples, copied, over a lib.urp made from
+# tests/lib.urp with the sources named by absolute path and config.urp the
+# build tree's.
+cp -r "$here/app" "$out/app"
+cp -r "$top/examples" "$out/examples"
+cp "$build/tests/config.urp" "$out/config.urp"
+sed -e "s#^ffi \.\./#ffi $top/#; s#^\.\./#$top/#" "$here/lib.urp" > "$out/lib.urp"
+
 # A certificate for the fake server's STARTTLS, self-signed, so that it
 # doubles as the CA the client is given.
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
@@ -71,13 +85,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
   -keyout "$out/key.pem" -out "$out/cert.pem" >/dev/null 2>&1 || die "openssl failed"
 
 # The examples must at least typecheck against the signature.
-for ex in "$top"/examples/*.urp; do
+for ex in "$out"/examples/*.urp; do
   ( cd "$(dirname "$ex")" && "$urweb" $urweb_flags -tc "$(basename "$ex" .urp)" ) \
     > "$out/examples.log" 2>&1 || { cat "$out/examples.log" >&2; die "example $(basename "$ex") does not typecheck"; }
 done
 
 # The application, built once; its database is created afresh for each case.
-( cd "$here/app" && rm -f test.exe && "$urweb" $urweb_flags -protocol http -dbms sqlite \
+( cd "$out/app" && "$urweb" $urweb_flags -protocol http -dbms sqlite \
     -db "$out/app.db" -sql "$out/app.sql" test ) \
   > "$out/build.log" 2>&1 || { cat "$out/build.log" >&2; die "the test application failed to build"; }
 
@@ -119,9 +133,9 @@ for case in "${cases[@]}"; do
   # The application, fresh for every case so that its log and its queue are
   # the case's.  -d3 prints pid=, port= and status= on fd 3 once it listens.
   sqlite3 "$work/app.db" < "$out/app.sql" >/dev/null   # a PRAGMA in there prints its value
-  eval "$( env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
+  eval "$( env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" "$out/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
   if [ "${status:-}" != OK ]; then
-    echo "$case: the test application did not start" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
+    echo "$case: the test application did not start" >&2; cat "$work/app.log" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
   fi
   app_pid=$pid; app_port=$port
 
