@@ -74,6 +74,13 @@ fun record id status =
       | Urmail.MaybeSent _ =>
         (* Back into the queue: sent again, with the same Message-ID. *)
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
+      | Urmail.Failed why =>
+        (* The server URL, the TLS setting or the login is wrong, which no
+           message is to blame for: back into the queue, and the log says
+           what to fix.  Until it is fixed every tick fails the same way; a
+           real queue would stop and raise an alarm instead. *)
+        debug ("urmail: message " ^ show id ^ " cannot be sent: " ^ why);
+        dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
 
 (* Step 2, around the other two, once a second. *)
 task periodic 1 = fn () =>

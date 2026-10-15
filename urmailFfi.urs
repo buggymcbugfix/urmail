@@ -75,24 +75,34 @@ datatype tls =
                              certificate; never for production, since anyone
                              on the path can then read the credentials. *)
 
-(* What became of a message. *)
+(* What became of a message.  Where the server answered, the string is its
+   reply and the command it answered; otherwise what libcurl said. *)
 datatype sendStatus =
     Sent
-  | Refused of string    (* The server refused it for good (a 5xx reply: no
-                            such recipient, message rejected), or the
+  | Refused of string    (* The server refused the message for good: a 5xx
+                            reply to MAIL FROM, RCPT TO or after DATA (no
+                            such recipient, message rejected); or the
                             library would not send it (an inline part with
-                            no HTML part to refer to it); sending it again
-                            will not help.  The string says what the server,
-                            or the library, said. *)
+                            no HTML part to refer to it).  Sending it again
+                            will not help. *)
   | NotSent of string    (* Not delivered, for now: the server declined with
                             a 4xx reply (mailbox busy, storage short,
-                            greylisting), or the connection failed before
-                            any of the message was uploaded.  Worth another
-                            try later. *)
+                            greylisting, a temporary failure of the login),
+                            or the connection failed before any of the
+                            message was uploaded.  Worth another try
+                            later. *)
   | MaybeSent of string  (* The connection was lost after the upload began
                             and the server's verdict never arrived: the
                             server may or may not have accepted the message.
                             Sending again may deliver it twice. *)
+  | Failed of string     (* Nothing was tried against the message: the
+                            server URL is not an smtp:// or smtps:// one,
+                            TLS could not be set up or the certificate did
+                            not verify, or the server refused the session
+                            with a 5xx before MAIL FROM (to the greeting,
+                            EHLO, STARTTLS or the login).  The same call
+                            fails the same way until the configuration is
+                            changed; the message itself is fine. *)
 
 (* Send now.  The headers must have passed [problem] and every attachment
    [attachmentProblem]; Urmail.send sees to it. *)

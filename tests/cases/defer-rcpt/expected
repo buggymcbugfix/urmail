@@ -1,5 +1,5 @@
 --- status
-NotSent: server declined for now: Failed sending data to the peer (SMTP 450)
+NotSent: server declined for now: 450 try again later (RCPT TO:<bob@example.net>)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

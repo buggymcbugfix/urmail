@@ -1,5 +1,5 @@
 --- status
-NotSent: SSL peer certificate or SSH remote key was not OK
+Failed: SSL peer certificate or SSH remote key was not OK
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

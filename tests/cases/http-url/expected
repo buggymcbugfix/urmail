@@ -1,5 +1,5 @@
 --- status
-NotSent: Unsupported protocol
+Failed: Unsupported protocol
 --- server
 (no client connected)
 --- application log

@@ -1,4 +1,6 @@
-# TLS required but the server does not offer STARTTLS.
+# TLS required but the server does not offer STARTTLS: Failed, since the
+# configuration and the server disagree, and no message can go until one of
+# them changes.
 mode=no-starttls
 tls=starttls-ca
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

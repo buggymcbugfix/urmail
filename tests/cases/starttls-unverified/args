@@ -1,5 +1,6 @@
 # STARTTLS with no CA given: the library must not trust a self-signed
-# certificate silently.
+# certificate silently.  Failed, since every message would fail the same
+# way until the CA is given or the certificate is replaced.
 mode=accept
 tls=starttls
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

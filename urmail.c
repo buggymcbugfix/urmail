@@ -957,12 +957,12 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
 /* ---- Delivery: a persistent connection per server and account, one send at
    a time on each, and an outcome that says what is known. ---- */
 
-typedef enum { SENT, REFUSED, NOT_SENT, MAYBE_SENT } outcome_kind;
+typedef enum { SENT, REFUSED, NOT_SENT, MAYBE_SENT, NOT_TRIED } outcome_kind;  // NOT_TRIED is Failed (urweb.h has FAILED)
 
 typedef struct {
   outcome_kind kind;
-  char message[512];  // unless SENT: what libcurl said, and the server's
-                      // last reply code if there was one
+  char message[1024];  // unless SENT: the server's reply and the command it
+                       // answered, or what libcurl said when there was none
 } outcome;
 
 // Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
@@ -976,6 +976,94 @@ static int debugging(void) {
 }
 
 #define DBG(...) do { if (debugging()) { fprintf(stderr, "urmail: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
+
+// What the exchange with the server came to, kept by trace_callback for the
+// status: the last command sent and the last reply line, and whether MAIL
+// FROM went out, which is where the server stops judging the session (the
+// greeting, EHLO, STARTTLS, the login) and starts judging the message.
+typedef struct {
+  char command[320];  // without the line end; "" before the first
+  char reply[320];    // the last line of the last reply, without the line end
+  int in_auth;        // the AUTH exchange is on: what goes out is credentials
+  int mail_from;      // MAIL FROM has been sent
+} trace;
+
+// One line of libcurl's, without its line end, truncated to what fits.
+static void trace_line(char *out, size_t n, const char *data, size_t size) {
+  while (size && (data[size-1] == '\n' || data[size-1] == '\r'))
+    --size;
+  if (size >= n)
+    size = n - 1;
+  memcpy(out, data, size);
+  out[size] = 0;
+}
+
+// libcurl's debug callback, always installed: it records the exchange for
+// the status, and prints it as libcurl's own trace would when URMAIL_DEBUG
+// is set, except that the credentials are not printed.  The AUTH exchange
+// is the AUTH command, possibly with the credentials after the mechanism,
+// and then one line of credentials for each 334 the server answers.  The
+// message itself is never printed.
+static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t size, void *userp) {
+  trace *t = userp;
+  (void)curl;
+
+  switch (type) {
+  case CURLINFO_TEXT:
+    if (debugging())
+      fprintf(stderr, "* %.*s", (int)size, data);
+    break;
+  case CURLINFO_HEADER_OUT:
+    if (t->in_auth) {
+      if (debugging())
+        fputs("> [credentials]\n", stderr);
+      break;
+    }
+    trace_line(t->command, sizeof t->command, data, size);
+    if (!strncmp(t->command, "AUTH ", 5)) {
+      char *ir = strchr(t->command + 5, ' ');
+      if (ir && ir - t->command + 15 < (long)sizeof t->command)
+        strcpy(ir, " [credentials]");
+      t->in_auth = 1;
+    }
+    if (!strncmp(t->command, "MAIL FROM", 9))
+      t->mail_from = 1;
+    if (debugging())
+      fprintf(stderr, "> %s\n", t->command);
+    break;
+  case CURLINFO_HEADER_IN:
+    trace_line(t->reply, sizeof t->reply, data, size);
+    if (t->in_auth && strncmp(t->reply, "334", 3))
+      t->in_auth = 0;
+    if (!strncmp(t->reply, "354", 3) && !strcmp(t->command, "DATA"))
+      strcpy(t->command, "end of DATA");  // what the next reply answers
+    if (debugging())
+      fprintf(stderr, "< %s\n", t->reply);
+    break;
+  default:
+    break;
+  }
+  return 0;
+}
+
+// Whether libcurl's result says the configuration is wrong: the URL, or the
+// TLS it asks for.  The same send fails the same way until someone changes
+// it, so it is not worth retrying.
+static int configuration_error(CURLcode res) {
+  switch (res) {
+  case CURLE_URL_MALFORMAT:
+  case CURLE_UNSUPPORTED_PROTOCOL:
+  case CURLE_SSL_CONNECT_ERROR:
+  case CURLE_PEER_FAILED_VERIFICATION:
+  case CURLE_SSL_CACERT_BADFILE:
+  case CURLE_SSL_CERTPROBLEM:
+  case CURLE_SSL_CIPHER:
+  case CURLE_USE_SSL_FAILED:
+    return 1;
+  default:
+    return 0;
+  }
+}
 
 // Seconds without progress (connecting, or waiting for the server) after
 // which a send is given up.  URMAIL_TIMEOUT overrides the default, for tests.
@@ -1049,19 +1137,26 @@ static struct curl_slist *add_recipients(struct curl_slist *l, struct address_li
   return l;
 }
 
-// One attempt; `fresh` forces a new TCP connection.
+// One attempt; `fresh` forces a new TCP connection.  `t` records the
+// exchange.
 static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
-                        upload_status *up, int fresh) {
+                        upload_status *up, int fresh, trace *t) {
   CURL *curl = c->curl;
   CURLcode res;
-  long t = timeout_seconds();
+  long timeout = timeout_seconds();
 
+  memset(t, 0, sizeof *t);
   curl_easy_reset(curl);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);  // threads: no SIGALRM for timeouts
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, t);
+  // The trace is always on, since the status is made from it; it prints
+  // only when debugging.
+  curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, trace_callback);
+  curl_easy_setopt(curl, CURLOPT_DEBUGDATA, t);
+  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
   curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
-  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, t);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10 * t);  // the hard cap, for a stalling server
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10 * timeout);  // the hard cap, for a stalling server
   if (fresh)
     curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
 
@@ -1099,8 +1194,6 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
   curl_easy_setopt(curl, CURLOPT_READDATA, up);
   curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-  if (debugging())
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   res = curl_easy_perform(curl);
   return res;
@@ -1109,8 +1202,14 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
 // Send the job's message.  What can be told afterwards:
 //
 //   - CURLE_OK: sent.
-//   - The server answered with a code of 500 or more: it refused something
-//     (a recipient, the message) for good; sending again will not help.
+//   - The server answered with a code of 500 or more after MAIL FROM: it
+//     refused the message (a recipient, the content) for good; sending it
+//     again will not help.
+//   - The server answered with a code of 500 or more before MAIL FROM, to
+//     the greeting, EHLO, STARTTLS or the login: it refused the session,
+//     which the message has no part in; the configuration is what needs
+//     changing.  The same when the URL is wrong or TLS cannot be set up:
+//     failed, and not worth trying again as it is.
 //   - The server answered with a code of 400 to 499: it declined for now (a
 //     mailbox busy, storage short, greylisting); not sent, try again later.
 //   - The connection broke before any of the message was uploaded: not sent.
@@ -1119,10 +1218,14 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
 //   - The connection broke after the message was uploaded, in full or in part,
 //     and the server's verdict never arrived: maybe sent.  No retry here; that
 //     is the caller's decision, since it may mean a duplicate.
+//
+// Where the server answered, the status quotes its reply and the command it
+// answered; otherwise what libcurl said.
 static void deliver(job *j, outcome *o) {
   smtp_conn *c = get_connection(j);
   struct curl_slist *recipients = NULL;
   upload_status up;
+  trace t;
   CURLcode res;
   int fresh = 0, tries = 0;
 
@@ -1149,7 +1252,7 @@ static void deliver(job *j, outcome *o) {
     up.length = j->length;
     ++tries;
     DBG("attempt %d (%s connection) for %s", tries, fresh ? "fresh" : "reused if possible", j->server);
-    res = attempt(c, j, recipients, &up, fresh);
+    res = attempt(c, j, recipients, &up, fresh, &t);
 
     if (res == CURLE_OK) {
       DBG("sent");
@@ -1164,17 +1267,26 @@ static void deliver(job *j, outcome *o) {
     DBG("failed: %s (SMTP %ld, uploaded %lld bytes, %ld new connections)",
         curl_easy_strerror(res), code, (long long)uploaded, connects);
 
-    if (code >= 500) {
-      o->kind = REFUSED;
-      snprintf(o->message, sizeof o->message, "server refused: %s (SMTP %ld)",
-               curl_easy_strerror(res), code);
+    if (code >= 400 && t.reply[0]) {
+      const char *answered = t.command[0] ? t.command : "greeting";
+      if (code >= 500 && !t.mail_from) {
+        o->kind = NOT_TRIED;
+        snprintf(o->message, sizeof o->message, "%s: %s (%s)",
+                 strncmp(t.command, "AUTH", 4) ? "server refused the session" : "login refused",
+                 t.reply, answered);
+      } else if (code >= 500) {
+        o->kind = REFUSED;
+        snprintf(o->message, sizeof o->message, "server refused: %s (%s)", t.reply, answered);
+      } else {
+        o->kind = NOT_SENT;
+        snprintf(o->message, sizeof o->message, "server declined for now: %s (%s)", t.reply, answered);
+      }
       break;
     }
 
-    if (code >= 400) {
-      o->kind = NOT_SENT;
-      snprintf(o->message, sizeof o->message, "server declined for now: %s (SMTP %ld)",
-               curl_easy_strerror(res), code);
+    if (configuration_error(res)) {
+      o->kind = NOT_TRIED;
+      snprintf(o->message, sizeof o->message, "%s", curl_easy_strerror(res));
       break;
     }
 
@@ -1289,6 +1401,10 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
   case MAYBE_SENT:
     r->tag = uw_UrmailFfi_MaybeSent;
     r->data.uw_MaybeSent = uw_strdup(ctx, o.message);
+    break;
+  case NOT_TRIED:
+    r->tag = uw_UrmailFfi_Failed;
+    r->data.uw_Failed = uw_strdup(ctx, o.message);
     break;
   }
   return r;

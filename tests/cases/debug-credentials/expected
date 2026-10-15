@@ -32,5 +32,6 @@ END
 S: 250 queued
 (client closed the connection)
 --- application log
-> AGFsaWNlAHNlY3JldA==
+> AUTH PLAIN
+> [credentials]
 urmail: sent

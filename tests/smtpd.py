@@ -35,6 +35,10 @@ The modes:
                       session; a new connection is served normally
     implicit-tls      the connection is TLS from the first byte (smtps://),
                       and STARTTLS is not offered
+    reject-greeting   the greeting is a 554, as a server gives that will not
+                      serve this client, and the session goes on from there
+    defer-auth        every AUTH PLAIN is declined with 454, a temporary
+                      failure
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is always
 offered; anything else is refused."""
@@ -112,7 +116,7 @@ class Session:
         return "\n".join(exts)
 
     def run(self):
-        self.reply("220 fake.test ESMTP")
+        self.reply("554 5.3.2 no service here" if self.mode == "reject-greeting" else "220 fake.test ESMTP")
         if self.mode == "hang":
             # Read until the client gives up, replying to nothing.
             while self.conn.recv(4096):
@@ -145,7 +149,9 @@ class Session:
                     self.log("C: [AUTH PLAIN credentials: " + creds + "]")
                 except Exception:
                     self.log("C: " + blob)
-                self.reply("535 5.7.8 authentication failed" if self.mode == "reject-auth" else "235 ok")
+                self.reply("535 5.7.8 authentication failed" if self.mode == "reject-auth"
+                           else "454 4.7.0 temporary authentication failure" if self.mode == "defer-auth"
+                           else "235 ok")
                 continue
             self.log("C: " + cmd)
             if verb == "EHLO":

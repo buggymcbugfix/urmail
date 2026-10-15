@@ -121,6 +121,7 @@ fun showStatus s =
       | Urmail.Refused m => "Refused: " ^ m
       | Urmail.NotSent m => "NotSent: " ^ m
       | Urmail.MaybeSent m => "MaybeSent: " ^ m
+      | Urmail.Failed m => "Failed: " ^ m
 
 fun queue (r : fields) =
     id <- nextval jobIds;

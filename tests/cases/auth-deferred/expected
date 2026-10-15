@@ -1,0 +1,15 @@
+--- status
+NotSent: server declined for now: 454 4.7.0 temporary authentication failure (AUTH PLAIN)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: alice secret]
+S: 454 4.7.0 temporary authentication failure
+(client closed the connection)
+--- application log

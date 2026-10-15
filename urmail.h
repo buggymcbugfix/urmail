@@ -58,10 +58,11 @@ extern uw_UrmailFfi_attachments uw_UrmailFfi_noAttachments;
 uw_UrmailFfi_attachments uw_UrmailFfi_addAttachment(uw_context, uw_UrmailFfi_attachment, uw_UrmailFfi_attachments);
 
 // UrmailFfi.sendStatus, laid out as uw_UrmailFfi_tls is.
-enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_Refused, uw_UrmailFfi_NotSent, uw_UrmailFfi_MaybeSent };
+enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_Refused, uw_UrmailFfi_NotSent, uw_UrmailFfi_MaybeSent,
+                                   uw_UrmailFfi_Failed };
 struct uw_UrmailFfi_sendStatus {
   enum uw_UrmailFfi_sendStatus_tag tag;
-  union { uw_Basis_string uw_Refused; uw_Basis_string uw_NotSent; uw_Basis_string uw_MaybeSent; } data;
+  union { uw_Basis_string uw_Refused; uw_Basis_string uw_NotSent; uw_Basis_string uw_MaybeSent; uw_Basis_string uw_Failed; } data;
 };
 typedef struct uw_UrmailFfi_sendStatus *uw_UrmailFfi_sendStatus;
 

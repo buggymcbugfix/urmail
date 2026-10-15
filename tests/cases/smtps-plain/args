@@ -1,6 +1,6 @@
 # Plain with an smtps:// URL is not plain: libcurl takes the scheme for TLS
 # and verifies the certificate against the system's CAs, which do not know
-# the server's.
+# the server's.  Failed, as a certificate that does not verify is.
 mode=implicit-tls
 tls=none
 url=smtps

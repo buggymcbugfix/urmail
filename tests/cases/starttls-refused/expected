@@ -1,5 +1,5 @@
 --- status
-NotSent: Requested SSL level failed
+Failed: Requested SSL level failed
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

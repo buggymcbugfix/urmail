@@ -74,6 +74,7 @@ Debugging
 ---------
 
 `URMAIL_DEBUG=1` in the application's environment traces every send on
-stderr, with libcurl's own verbose output.  `URMAIL_TIMEOUT=SECONDS`
+stderr, in the shape of libcurl's verbose output (commands, replies, what
+libcurl notes), with the credentials left out and the message not shown.  `URMAIL_TIMEOUT=SECONDS`
 changes how long a send may go without progress before it is given up
 (60 by default).
