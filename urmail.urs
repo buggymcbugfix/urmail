@@ -104,7 +104,7 @@ end
    retry after a MaybeSent, say), since receivers recognise a duplicate by
    it.
 
-   A send is given up after URMAIL_TIMEOUT seconds (60 unless set) without
+   A send is given up after URMAIL_TIMEOUT seconds (100 unless set) without
    progress.  URMAIL_DEBUG=1 traces the sends on stderr. *)
 val send :
 	{

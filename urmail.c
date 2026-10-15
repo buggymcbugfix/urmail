@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -1067,14 +1068,25 @@ static int configuration_error(CURLcode res) {
 }
 
 // Seconds without progress (connecting, or waiting for the server) after
-// which a send is given up.  URMAIL_TIMEOUT overrides the default, for tests.
+// which a send is given up, and for how long an idle connection is kept:
+// URMAIL_TIMEOUT, a whole number of seconds from 1 to 86400, or 100.
+// Anything else gets one line on stderr and the default; the range keeps
+// the arithmetic on it (10 * t for the hard cap) in bounds.
 static long timeout_seconds(void) {
   static long t = -1;
   if (t < 0) {
     const char *v = getenv("URMAIL_TIMEOUT");
-    t = v && *v ? atol(v) : 60;
-    if (t <= 0)
-      t = 60;
+    long n = 100;
+    if (v && *v) {
+      char *end;
+      errno = 0;
+      n = strtol(v, &end, 10);
+      if (errno || *end || n < 1 || n > 86400) {
+        fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to 86400; using 100\n", v);
+        n = 100;
+      }
+    }
+    t = n;
   }
   return t;
 }

@@ -1,0 +1,7 @@
+# URMAIL_TIMEOUT that is not a number of seconds: one line on stderr, and
+# the default is used; the send goes on.
+mode=accept
+tls=none
+app_env=(URMAIL_TIMEOUT=abc)
+logfilter='^urmail: URMAIL_TIMEOUT'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)
