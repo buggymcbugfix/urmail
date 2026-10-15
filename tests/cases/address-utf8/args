@@ -1,0 +1,6 @@
+# A non-ASCII domain is refused: the library does not negotiate SMTPUTF8 and
+# does not convert names to IDNA, so the bytes would go out as they are.
+api=check
+mode=accept
+tls=none
+form=(From=alice@example.com To='bob@müller.example' Subject=Hello Body=$'Hi\n' User=alice Password=secret)

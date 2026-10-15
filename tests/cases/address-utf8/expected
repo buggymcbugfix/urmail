@@ -1,0 +1,5 @@
+--- check
+refused: E-mail address is not ASCII
+--- server
+(no client connected)
+--- application log

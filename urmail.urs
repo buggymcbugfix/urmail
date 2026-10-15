@@ -1,7 +1,29 @@
 (** Ur/Web e-mail sending library *)
 
-(* The headers of a message, as [mkHeaders] checked them. *)
-type headers
+(* An e-mail address, as [emailAddress] parsed it from "local@domain" or
+   "Name <local@domain>" (blanks around are dropped).  local is of letters,
+   digits, !#$%&'*+-/=?^_`{|}~ and single dots between them; domain is
+   labels of letters, digits and inner hyphens, joined by dots; both ASCII,
+   the whole at most 254 bytes.  Refused: quoted local parts ("a b"@x),
+   address literals ([127.0.0.1]), non-ASCII, and anything after the '>'.
+   The name may be anything but a line break; a name given in quotes keeps
+   its meaning.  [show] gives the text back as it was given. *)
+type emailAddress
+val emailAddress : string -> result emailAddress
+val show_emailAddress : show emailAddress
+
+(* The text of a header, as [headerText] checked it: anything but a line
+   break, at most 2000 bytes; encoded and folded when it is long or not
+   ASCII.  For Subject and User-Agent.  [show] gives the text back. *)
+type headerText
+val headerText : string -> result headerText
+val show_headerText : show headerText
+
+(* A Message-ID, as [messageId] checked it: "<unique@domain>", without
+   blanks or stray brackets.  [show] gives the text back. *)
+type messageId
+val messageId : string -> result messageId
+val show_messageId : show messageId
 
 (* An attachment, as [Attachment.fromBlob] or [Attachment.fromServedFile]
    checked it; or an inline part of the HTML, after [Attachment.inline]. *)
@@ -9,25 +31,6 @@ type attachment
 
 datatype tls = datatype UrmailFfi.tls
 datatype sendStatus = datatype UrmailFfi.sendStatus
-
-(* The headers of a message, or what is wrong with them: an address is
-   "addr@domain" or "Name <addr@domain>", no value may contain a line break,
-   there has to be a recipient among To, Cc and Bcc, and a MessageId given has
-   the form "<unique@domain>".  One is generated when none is given; give one
-   that is a function of the message when the message may be sent more than
-   once (a retry after a MaybeSent, say), since receivers recognise a
-   duplicate by it. *)
-val mkHeaders :
-	{
-		From : string,
-		Subject : string,
-		UserAgent : option string,
-		MessageId : option string,
-		To : list string,
-		Cc : list string,
-		Bcc : list string
-	} ->
-	result headers
 
 structure Attachment : sig
 	(* The name the recipient sees.  AsciiName is the one every client reads
@@ -91,6 +94,14 @@ end
    connection is kept open for the next message to the same server and
    account.
 
+   The parts of the headers are what [emailAddress], [headerText] and
+   [messageId] checked, so nothing in them can be refused here; a message
+   with no recipient among To, Cc and Bcc is Refused, nothing being sent.
+   A Message-ID is generated when none is given; give one that is a
+   function of the message when the message may be sent more than once (a
+   retry after a MaybeSent, say), since receivers recognise a duplicate by
+   it.
+
    A send is given up after URMAIL_TIMEOUT seconds (60 unless set) without
    progress.  URMAIL_DEBUG=1 traces the sends on stderr. *)
 val send :
@@ -100,7 +111,13 @@ val send :
 		Tls : tls,
 		User : string,        (* for SMTP authentication *)
 		Password : string,
-		Headers : headers,
+		From : emailAddress,
+		To : list emailAddress,
+		Cc : list emailAddress,
+		Bcc : list emailAddress,
+		Subject : headerText,
+		UserAgent : option headerText,
+		MessageId : option messageId,
 		Text : string,        (* the plain text body *)
 		Html : option page,   (* the HTML version, if any *)
 		Attachments : list attachment  (* the attached ones after the body,

@@ -2,9 +2,11 @@ urmail: sending e-mail from Ur/Web
 ==================================
 
 An Ur/Web library that sends a message through an SMTP server, over
-libcurl.  `urmail.urs` is the interface: `mkHeaders` checks the addresses
-and header values of a message and `send`, from an io task, sends it and
-says what became of it (sent, not sent, or maybe sent).  Sending is not
+libcurl.  `urmail.urs` is the interface: `emailAddress`, `headerText` and
+`messageId` parse the parts of a message's headers (an address is
+`local@domain` or `Name <local@domain>`), and `send`, from an io task,
+sends the message and says what became of it (sent, refused, not sent,
+maybe sent, or failed before any of it was tried).  Sending is not
 something a transaction can undo, so there is no sending from one: a
 request handler queues the message in a table, and a periodic task in io
 claims it in one transaction, sends, and records the status in another.

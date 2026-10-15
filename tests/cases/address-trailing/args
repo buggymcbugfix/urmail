@@ -1,0 +1,6 @@
+# A bracketed address followed by text: the text is refused rather than
+# written into the To header after the address.
+api=check
+mode=accept
+tls=none
+form=(From=alice@example.com To='<bob@example.net> NOTIFY=NEVER' Subject=Hello Body=$'Hi\n' User=alice Password=secret)

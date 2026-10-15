@@ -1,0 +1,5 @@
+--- check
+refused: E-mail address has text after the '>'
+--- server
+(no client connected)
+--- application log

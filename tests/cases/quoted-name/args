@@ -1,5 +1,6 @@
 # A display name that is already quoted, as an address written by hand has
-# it.  The header quotes it once more, so the quotes become part of the name.
+# it.  The quotes are those of the header's syntax, not part of the name, so
+# the header has them once.
 mode=accept
 tls=none
 form=(From='"Alice B." <alice@example.com>' To='"Bob C." <bob@example.net>' Subject=Hello Body=$'Hi\n' User=alice Password=secret)

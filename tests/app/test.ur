@@ -1,10 +1,10 @@
 (* The test application.  The runner posts a message's fields to `queue`,
-   which stores them for the io task below; the task builds the headers with
-   Urmail.mkHeaders and the attachments with Urmail.Attachment, sends the
-   message with Urmail.send and records the status, to be read back from
-   `status`.  `check` shows what Urmail.mkHeaders and Urmail.Attachment make
-   of the fields, for the cases about the checks.  The fake SMTP server
-   records what arrives. *)
+   which stores them for the io task below; the task parses the headers'
+   parts with Urmail.emailAddress, headerText and messageId and the
+   attachments with Urmail.Attachment, sends the message with Urmail.send
+   and records the status, to be read back from `status`.  `check` shows
+   what the parsers and Urmail.Attachment make of the fields, for the cases
+   about the checks.  The fake SMTP server records what arrives. *)
 
 type fields = { Server : string, Tls : string, Ca : string, User : string, Password : string,
                 From : string, To : string, Cc : string, Bcc : string, Subject : string,
@@ -28,11 +28,29 @@ fun addrs (s : string) : list string =
 
 fun opt (s : string) : option string = if s = "" then None else Some s
 
+(* An optional field, parsed when there. *)
+fun optM [a ::: Type] [b ::: Type] (f : a -> result b) (x : option a) : result (option b) =
+    case x of
+        None => return None
+      | Some v => v <- f v; return (Some v)
+
+(* The parts of the headers, parsed, or what is wrong with the first that
+   is not. *)
 fun headers [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, MessageId, UserAgent]]
             (r : $([From = string, To = string, Cc = string, Bcc = string, Subject = string,
-                    MessageId = string, UserAgent = string] ++ rest)) : result Urmail.headers =
-    Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = opt r.UserAgent,
-                      MessageId = opt r.MessageId, To = addrs r.To, Cc = addrs r.Cc, Bcc = addrs r.Bcc}
+                    MessageId = string, UserAgent = string] ++ rest))
+    : result {From : Urmail.emailAddress, To : list Urmail.emailAddress, Cc : list Urmail.emailAddress,
+              Bcc : list Urmail.emailAddress, Subject : Urmail.headerText,
+              UserAgent : option Urmail.headerText, MessageId : option Urmail.messageId} =
+    from <- Urmail.emailAddress r.From;
+    to <- List.mapM Urmail.emailAddress (addrs r.To);
+    cc <- List.mapM Urmail.emailAddress (addrs r.Cc);
+    bcc <- List.mapM Urmail.emailAddress (addrs r.Bcc);
+    subject <- Urmail.headerText r.Subject;
+    userAgent <- optM Urmail.headerText (opt r.UserAgent);
+    messageId <- optM Urmail.messageId (opt r.MessageId);
+    return {From = from, To = to, Cc = cc, Bcc = bcc, Subject = subject,
+            UserAgent = userAgent, MessageId = messageId}
 
 (* An attachment as the runner spells it, KIND|ASCII|UTF8|TYPE|DATA, an
    empty UTF8 meaning none.  KIND blob: DATA is the text of the file.  KIND
@@ -113,9 +131,10 @@ fun queue (r : fields) =
                  {[r.MessageId]}, {[r.UserAgent]}, {[r.Attach1]}, {[r.Attach2]}, {[r.Attach3]}, NULL));
     return <xml><body>queued</body></xml>
 
-(* An application checks the headers and the attachments in the transaction
-   that claims the job (see examples/queue.ur); here a refusal is just
-   recorded, and the cases about the checks post to `check` instead. *)
+(* An application parses the headers' parts and checks the attachments in
+   the transaction that claims the job (see examples/queue.ur); here a
+   refusal is just recorded, and the cases about the checks post to `check`
+   instead. *)
 task periodic 1 = fn () =>
     jobs <- runTransaction (queryL1 (SELECT * FROM job WHERE job.Status IS NULL ORDER BY job.Id));
     _ <- List.mapM (fn j =>
@@ -125,9 +144,9 @@ task periodic 1 = fn () =>
                                  case attachments j of
                                      Failure e => return ("Refused: " ^ show e)
                                    | Success (as, inlines) =>
-                                     s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
-                                                       Password = j.Password, Headers = h, Text = j.Body,
-                                                       Html = html j inlines, Attachments = as};
+                                     s <- Urmail.send (h ++ {ServerUrl = j.Server, Tls = tls j, User = j.User,
+                                                             Password = j.Password, Text = j.Body,
+                                                             Html = html j inlines, Attachments = as});
                                      return (showStatus s));
                        runTransaction (dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[j.Id]})))
                    jobs;
@@ -138,7 +157,7 @@ fun status () =
                     (fn r => <xml>{[Option.get "" r.Status]}<br/></xml>);
     return <xml><body>{rows}</body></xml>
 
-(* What Urmail.mkHeaders and Urmail.Attachment make of the fields. *)
+(* What the parsers and Urmail.Attachment make of the fields. *)
 fun check (r : fields) =
     return <xml><body>{case headers r of
                            Failure e => <xml>refused: {e}</xml>

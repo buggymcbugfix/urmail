@@ -11,17 +11,182 @@
 #include <urweb/urweb.h>
 #include "urmail.h"
 
-struct headers {
-  uw_Basis_string from, to, cc, bcc, subject, user_agent, message_id;
-  // What is wrong with the message, if anything: the first problem a builder
-  // below found.  Urmail.mkHeaders asks for it (problem, below) and reports
-  // it, so that no builder has to fail.
-  const char *error;
+/* ---- Addresses: parsed once, by UrmailFfi.parseAddress, into the display
+   name and the addr-spec, so that the envelope gets exactly the addr-spec
+   and the header gets the two parts, each written as its syntax wants.
+   Nothing that was not parsed reaches the server. ---- */
+
+struct address {
+  uw_Basis_string text;   // as given, blanks around dropped: what show gives
+  uw_Basis_string name;   // the display name as given, or NULL
+  uw_Basis_string addr;   // local@domain: what the envelope gets
+  const char *error;      // what is wrong with it, or NULL
 };
 
-typedef struct headers *uw_UrmailFfi_headers;
+typedef struct address *uw_UrmailFfi_emailAddress;
 
-uw_UrmailFfi_headers uw_UrmailFfi_empty = NULL;
+// The characters of RFC 5322's atext, which a local part is made of (with
+// dots between runs of them) and which a display name may hold unquoted.
+static int is_atext(unsigned char c) {
+  return c && (isalnum(c) || strchr("!#$%&'*+-/=?^_`{|}~", c));
+}
+
+// What is wrong with an addr-spec, or NULL.  RFC 5321's Mailbox without the
+// quoted local parts and the address literals, which no one types: a local
+// part of atext with single dots between runs, an '@', a domain of labels of
+// letters, digits and inner hyphens joined by dots, all ASCII, the whole at
+// most 254 bytes (the 256 of a path, less the brackets).
+static const char *addr_spec(const char *s) {
+  const char *at, *p;
+
+  if (!*s)
+    return "Empty e-mail address";
+  for (p = s; *p; ++p)
+    if ((unsigned char)*p >= 0x80)
+      return "E-mail address is not ASCII";
+  if (strlen(s) > 254)
+    return "E-mail address is longer than 254 bytes";
+  if (!(at = strchr(s, '@')))
+    return "E-mail address has no '@'";
+  if (at == s)
+    return "E-mail address has nothing before the '@'";
+  for (p = s; p < at; ++p) {
+    if (*p == '.') {
+      if (p == s || p + 1 == at || p[1] == '.')
+        return "E-mail address has a misplaced dot";
+    } else if (!is_atext((unsigned char)*p))
+      return "E-mail address has a character not allowed before the '@'";
+  }
+  if (!at[1])
+    return "E-mail address has nothing after the '@'";
+  for (p = at + 1; ; ) {
+    const char *label = p;
+    while (isalnum((unsigned char)*p) || *p == '-')
+      ++p;
+    if (p == label)
+      return *p == '.' ? "E-mail address has a misplaced dot"
+                       : "E-mail address has a character not allowed after the '@'";
+    if (*label == '-' || p[-1] == '-')
+      return "E-mail address has a '-' at the start or the end of a domain label";
+    if (p - label > 63)
+      return "E-mail address has a domain label longer than 63 characters";
+    if (!*p)
+      return NULL;
+    if (*p != '.')
+      return "E-mail address has a character not allowed after the '@'";
+    if (!*++p)
+      return "E-mail address has a misplaced dot";
+  }
+}
+
+// Parse "local@domain" or "Name <local@domain>".  The addr-spec is what
+// stands between the last '<' and a final '>', or the whole when there are
+// no brackets; the name is what stands before that '<', and may be anything
+// but a line break, since it is quoted or encoded when the header is
+// written.  Text after the '>' is refused: it would otherwise end up in the
+// envelope, where a server reads it as parameters of the command.
+static void parse_address(uw_context ctx, const char *s, struct address *a) {
+  const char *p, *lt;
+  size_t n;
+
+  a->name = a->addr = NULL;
+  a->error = NULL;
+  while (*s == ' ' || *s == '\t')
+    ++s;
+  n = strlen(s);
+  while (n && (s[n-1] == ' ' || s[n-1] == '\t'))
+    --n;
+  a->text = uw_malloc(ctx, n + 1);
+  memcpy(a->text, s, n);
+  a->text[n] = 0;
+  s = a->text;
+
+  for (p = s; *p; ++p)
+    if (*p == '\r' || *p == '\n') {
+      a->error = "E-mail address contains a line break";
+      return;
+    }
+  if (n > 2000) {
+    a->error = "E-mail address is too long";
+    return;
+  }
+  if (!n) {
+    a->error = "Empty e-mail address";
+    return;
+  }
+
+  if (s[n-1] == '>') {
+    if (!(lt = strrchr(s, '<'))) {
+      a->error = "E-mail address has a '>' but no '<'";
+      return;
+    }
+    a->addr = uw_malloc(ctx, s + n - lt);
+    memcpy(a->addr, lt + 1, s + n - 1 - (lt + 1));
+    a->addr[s + n - 1 - (lt + 1)] = 0;
+    for (p = lt; p > s && (p[-1] == ' ' || p[-1] == '\t'); --p);
+    if (p > s) {
+      a->name = uw_malloc(ctx, p - s + 1);
+      memcpy(a->name, s, p - s);
+      a->name[p - s] = 0;
+    }
+  } else if (strchr(s, '>')) {
+    a->error = "E-mail address has text after the '>'";
+    return;
+  } else if (strchr(s, '<')) {
+    a->error = "E-mail address has a '<' but no '>'";
+    return;
+  } else
+    a->addr = a->text;
+
+  a->error = addr_spec(a->addr);
+}
+
+uw_UrmailFfi_emailAddress uw_UrmailFfi_parseAddress(uw_context ctx, uw_Basis_string s) {
+  uw_UrmailFfi_emailAddress a = uw_malloc(ctx, sizeof(struct address));
+
+  parse_address(ctx, s, a);
+  return a;
+}
+
+uw_Basis_string uw_UrmailFfi_addressProblem(uw_context ctx, uw_UrmailFfi_emailAddress a) {
+  return a->error ? uw_strdup(ctx, (char *)a->error) : NULL;
+}
+
+uw_Basis_string uw_UrmailFfi_addressString(uw_context ctx, uw_UrmailFfi_emailAddress a) {
+  (void)ctx;
+  return a->text;
+}
+
+// A list of addresses, newest first: consing keeps the headers values the
+// builders return immutable.  Readers take them in the order given.
+struct address_list {
+  uw_UrmailFfi_emailAddress a;
+  struct address_list *next;
+};
+
+static struct address_list *cons_address(uw_context ctx, uw_UrmailFfi_emailAddress a, struct address_list *l) {
+  struct address_list *cell = uw_malloc(ctx, sizeof *cell);
+
+  cell->a = a;
+  cell->next = l;
+  return cell;
+}
+
+// The addresses of a list in the order they were given, as a malloc'd array.
+static size_t addresses_in_order(struct address_list *l, uw_UrmailFfi_emailAddress **out) {
+  size_t n = 0, i;
+  struct address_list *p;
+
+  for (p = l; p; p = p->next)
+    ++n;
+  *out = n ? malloc(n * sizeof **out) : NULL;
+  for (p = l, i = n; p; p = p->next)
+    (*out)[--i] = p->a;
+  return n;
+}
+
+/* ---- The text of a header (Subject, User-Agent) and a Message-ID, parsed
+   as the addresses are: never failing, carrying what is wrong. ---- */
 
 // A header value may be anything but a line break; long or non-ASCII values
 // are encoded and folded when the message is assembled (RFC 2047 and 5322).
@@ -38,85 +203,28 @@ static const char *header(uw_Basis_string s) {
   return NULL;
 }
 
-// An address is either an addr-spec or "Display Name <addr-spec>".  The
-// addr-spec is what goes into the envelope, so it must be there.
-static const char *address(uw_Basis_string s) {
-  const char *p, *e;
+struct header_text {
+  uw_Basis_string text;
+  const char *error;
+};
 
-  if ((e = header(s)))
-    return e;
+typedef struct header_text *uw_UrmailFfi_headerText;
 
-  if (strchr(s, ','))
-    return "E-mail address contains comma";
+uw_UrmailFfi_headerText uw_UrmailFfi_parseHeaderText(uw_context ctx, uw_Basis_string s) {
+  uw_UrmailFfi_headerText t = uw_malloc(ctx, sizeof *t);
 
-  for (p = s; *p == ' ' || *p == '\t'; ++p);
-  if (!*p)
-    return "Empty e-mail address";
-  if (strchr(p, '<') && !strchr(p, '>'))
-    return "E-mail address has '<' but no '>'";
-
-  return NULL;
+  t->text = uw_strdup(ctx, s);
+  t->error = header(s);
+  return t;
 }
 
-// A copy of the headers to add to, with the first problem kept.
-static uw_UrmailFfi_headers extend(uw_context ctx, uw_UrmailFfi_headers h, const char *error) {
-  uw_UrmailFfi_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  if (error && !h2->error)
-    h2->error = error;
-
-  return h2;
+uw_Basis_string uw_UrmailFfi_headerTextProblem(uw_context ctx, uw_UrmailFfi_headerText t) {
+  return t->error ? uw_strdup(ctx, (char *)t->error) : NULL;
 }
 
-// A comma-separated list of addresses, as the envelope wants them.
-static uw_Basis_string append_address(uw_context ctx, uw_Basis_string list, uw_Basis_string s) {
-  if (list) {
-    uw_Basis_string all = uw_malloc(ctx, strlen(list) + 2 + strlen(s));
-    sprintf(all, "%s,%s", list, s);
-    return all;
-  } else
-    return uw_strdup(ctx, s);
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->from ? "Duplicate From header" : address(s));
-  h2->from = uw_strdup(ctx, s);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
-  h2->to = append_address(ctx, h2->to, s);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
-  h2->cc = append_address(ctx, h2->cc, s);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, address(s));
-  h2->bcc = append_address(ctx, h2->bcc, s);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->subject ? "Duplicate Subject header" : header(s));
-  h2->subject = uw_strdup(ctx, s);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->user_agent ? "Duplicate User-Agent header" : header(s));
-  h2->user_agent = uw_strdup(ctx, s);
-  return h2;
+uw_Basis_string uw_UrmailFfi_headerTextString(uw_context ctx, uw_UrmailFfi_headerText t) {
+  (void)ctx;
+  return t->text;
 }
 
 static const char *message_id(uw_Basis_string s) {
@@ -133,9 +241,100 @@ static const char *message_id(uw_Basis_string s) {
   return NULL;
 }
 
-uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, h && h->message_id ? "Duplicate Message-ID header" : message_id(s));
-  h2->message_id = uw_strdup(ctx, s);
+struct message_id {
+  uw_Basis_string text;
+  const char *error;
+};
+
+typedef struct message_id *uw_UrmailFfi_messageId;
+
+uw_UrmailFfi_messageId uw_UrmailFfi_parseMessageId(uw_context ctx, uw_Basis_string s) {
+  uw_UrmailFfi_messageId m = uw_malloc(ctx, sizeof *m);
+
+  m->text = uw_strdup(ctx, s);
+  m->error = message_id(s);
+  return m;
+}
+
+uw_Basis_string uw_UrmailFfi_messageIdProblem(uw_context ctx, uw_UrmailFfi_messageId m) {
+  return m->error ? uw_strdup(ctx, (char *)m->error) : NULL;
+}
+
+uw_Basis_string uw_UrmailFfi_messageIdString(uw_context ctx, uw_UrmailFfi_messageId m) {
+  (void)ctx;
+  return m->text;
+}
+
+/* ---- The headers of a message, built from the parsed parts by
+   Urmail.send. ---- */
+
+struct headers {
+  uw_UrmailFfi_emailAddress from;
+  struct address_list *to, *cc, *bcc;
+  uw_Basis_string subject, user_agent, message_id;
+  // What is wrong with the message, if anything: the first problem a part
+  // carried.  The builders never fail; problem (below) reports it.
+  const char *error;
+};
+
+typedef struct headers *uw_UrmailFfi_headers;
+
+uw_UrmailFfi_headers uw_UrmailFfi_empty = NULL;
+
+// A copy of the headers to add to, with the first problem kept.
+static uw_UrmailFfi_headers extend(uw_context ctx, uw_UrmailFfi_headers h, const char *error) {
+  uw_UrmailFfi_headers h2 = uw_malloc(ctx, sizeof(struct headers));
+
+  if (h)
+    *h2 = *h;
+  else
+    memset(h2, 0, sizeof(*h2));
+
+  if (error && !h2->error)
+    h2->error = error;
+
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
+  h2->from = a;
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
+  h2->to = cons_address(ctx, a, h2->to);
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
+  h2->cc = cons_address(ctx, a, h2->cc);
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
+  h2->bcc = cons_address(ctx, a, h2->bcc);
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context ctx, uw_UrmailFfi_headerText t, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, t->error);
+  h2->subject = t->text;
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context ctx, uw_UrmailFfi_headerText t, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, t->error);
+  h2->user_agent = t->text;
+  return h2;
+}
+
+uw_UrmailFfi_headers uw_UrmailFfi_message_id(uw_context ctx, uw_UrmailFfi_messageId m, uw_UrmailFfi_headers h) {
+  uw_UrmailFfi_headers h2 = extend(ctx, h, m->error);
+  h2->message_id = m->text;
   return h2;
 }
 
@@ -318,22 +517,6 @@ static size_t do_upload(void *ptr, size_t size, size_t nmemb, void *userp)
   return size;
 }
 
-// Extract e-mail address from a string that is either *just* an e-mail address or looks like "Recipient <address>".
-// Note: it's destructive!
-// Luckily, we only apply it to strings we are done using for other purposes (copied into buffer with e-mail contents).
-static char *addrOf(char *s) {
-  char *p = strchr(s, '<');
-  if (p) {
-    char *p2 = strchr(p+1, '>');
-    if (p2) {
-      *p2 = 0;
-      return p+1;
-    } else
-      return s;
-  } else
-    return s;
-}
-
 /* ---- A growable byte buffer for assembling the message.  malloc-based,
    since it grows by realloc; freed once the message is delivered. ---- */
 
@@ -476,71 +659,88 @@ static void buf_text_header(uw_context ctx, buf *b, const char *s) {
     buf_encoded_words(ctx, b, s);
 }
 
-// One address for a header, with its display name encoded if it is not
-// ASCII, or quoted if it has characters an unquoted phrase may not.
-static void buf_address(uw_context ctx, buf *b, const char *s) {
-  const char *lt = strchr(s, '<');
-  const char *name_end;
-  size_t name_len;
-  while (*s == ' ' || *s == '\t')
-    ++s;
-  if (!lt || lt == s) {
-    buf_str(ctx, b, s);
-    return;
+// Whether `s` (of n bytes) is a quoted-string as RFC 5322 has it: quotes
+// around, inside them any character but an unescaped quote, a backslash
+// escaping the next character.
+static int is_quoted_string(const char *s, size_t n) {
+  size_t i;
+
+  if (n < 2 || s[0] != '"' || s[n-1] != '"')
+    return 0;
+  for (i = 1; i < n - 1; ++i) {
+    if (s[i] == '\\')
+      ++i;
+    else if (s[i] == '"')
+      return 0;
   }
-  name_end = lt;
-  while (name_end > s && (name_end[-1] == ' ' || name_end[-1] == '\t'))
-    --name_end;
-  name_len = name_end - s;
-  if (name_len == 0) {
-    buf_str(ctx, b, lt);
-    return;
-  }
-  {
-    char *name = malloc(name_len + 1);
-    int plain = 1;
-    const char *p;
-    memcpy(name, s, name_len);
-    name[name_len] = 0;
-    for (p = name; *p; ++p)
-      if (strchr("()<>[]:;@\\.\"", *p))
-        plain = 0;
-    if (!is_ascii_text(name))
-      buf_encoded_words(ctx, b, name);
-    else if (plain)
-      buf_str(ctx, b, name);
-    else {
-      buf_str(ctx, b, "\"");
-      for (p = name; *p; ++p) {
-        if (*p == '"' || *p == '\\')
-          buf_str(ctx, b, "\\");
-        buf_append(ctx, b, p, 1);
-      }
-      buf_str(ctx, b, "\"");
-    }
-    free(name);
-  }
-  buf_str(ctx, b, " ");
-  buf_str(ctx, b, lt);
+  return i == n - 1;
 }
 
-// A list of addresses as the setters built it (comma-separated), one per
-// line after the first when there are several.
-static void buf_address_list(uw_context ctx, buf *b, const char *s) {
-  int first = 1;
-  while (*s) {
-    const char *comma = strchr(s, ',');
-    size_t len = comma ? (size_t)(comma - s) : strlen(s);
-    char *one = malloc(len + 1);
-    memcpy(one, s, len);
-    one[len] = 0;
-    if (!first)
-      buf_str(ctx, b, ",\r\n ");
-    buf_address(ctx, b, one);
-    free(one);
-    first = 0;
-    s += len + (comma ? 1 : 0);
+// A display name as a phrase.  One given as a quoted-string is unquoted
+// first, so that its quotes do not become part of the name.  Then: bare when
+// it is atext and blanks; a quoted-string when it has other ASCII; encoded
+// words (which fold) when it is not ASCII, is longer than 72 bytes, or has
+// the "=?" of an encoded word in it, which a client would otherwise decode.
+static void buf_name(uw_context ctx, buf *b, const char *name) {
+  size_t n = strlen(name), i, len = 0;
+  char *text = malloc(n + 1);
+  int plain = 1;
+
+  if (is_quoted_string(name, n)) {
+    for (i = 1; i < n - 1; ++i) {
+      if (name[i] == '\\')
+        ++i;
+      text[len++] = name[i];
+    }
+  } else {
+    memcpy(text, name, n);
+    len = n;
   }
+  text[len] = 0;
+
+  for (i = 0; i < len; ++i)
+    if (!is_atext((unsigned char)text[i]) && text[i] != ' ')
+      plain = 0;
+  if (!is_ascii_text(text) || len > 72 || strstr(text, "=?"))
+    buf_encoded_words(ctx, b, text);
+  else if (plain)
+    buf_str(ctx, b, text);
+  else {
+    buf_str(ctx, b, "\"");
+    for (i = 0; i < len; ++i) {
+      if (text[i] == '"' || text[i] == '\\')
+        buf_str(ctx, b, "\\");
+      buf_append(ctx, b, text + i, 1);
+    }
+    buf_str(ctx, b, "\"");
+  }
+  free(text);
+}
+
+// One address for a header: the addr-spec alone, or the name as a phrase
+// and the addr-spec in brackets.
+static void buf_address(uw_context ctx, buf *b, uw_UrmailFfi_emailAddress a) {
+  if (a->name) {
+    buf_name(ctx, b, a->name);
+    buf_str(ctx, b, " <");
+    buf_str(ctx, b, a->addr);
+    buf_str(ctx, b, ">");
+  } else
+    buf_str(ctx, b, a->addr);
+}
+
+// A list of addresses in the order given, one per line after the first when
+// there are several.
+static void buf_address_list(uw_context ctx, buf *b, struct address_list *l) {
+  uw_UrmailFfi_emailAddress *as;
+  size_t n = addresses_in_order(l, &as), i;
+
+  for (i = 0; i < n; ++i) {
+    if (i)
+      buf_str(ctx, b, ",\r\n ");
+    buf_address(ctx, b, as[i]);
+  }
+  free(as);
 }
 
 // The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
@@ -557,30 +757,12 @@ static void date_header(char out[64]) {
            tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
-// The domain of an address ("Name <user@domain>" or "user@domain"), for a
-// generated Message-ID; "localhost" when there is none.
-static void domain_of(const char *addr, char *out, size_t n) {
-  const char *lt = strchr(addr, '<'), *at, *end;
-  at = strchr(lt ? lt : addr, '@');
-  if (!at) {
-    snprintf(out, n, "localhost");
-    return;
-  }
-  ++at;
-  end = at + strcspn(at, "> \t");
-  if (end == at) {
-    snprintf(out, n, "localhost");
-    return;
-  }
-  snprintf(out, n, "%.*s", (int)(end - at), at);
-}
-
 // A Message-ID unique enough: random bytes, or if the system will not give
-// any, the time, the process and a counter.
-static void generate_message_id(const char *from, char *out, size_t n) {
+// any, the time, the process and a counter; at the domain of the From
+// address, which parse_address made sure is there.
+static void generate_message_id(uw_UrmailFfi_emailAddress from, char *out, size_t n) {
   unsigned char r[12];
   char hex[25];
-  char domain[256];
   FILE *f = fopen("/dev/urandom", "rb");
   int ok = f && fread(r, 1, sizeof r, f) == sizeof r;
   if (f)
@@ -593,8 +775,7 @@ static void generate_message_id(const char *from, char *out, size_t n) {
     static unsigned counter = 0;
     snprintf(hex, sizeof hex, "%lx.%x.%x", (long)time(NULL), (unsigned)getpid(), ++counter);
   }
-  domain_of(from, domain, sizeof domain);
-  snprintf(out, n, "<%s@%s>", hex, domain);
+  snprintf(out, n, "<%s@%s>", hex, strchr(from->addr, '@') + 1);
 }
 
 // The bytes as base64 in lines of 76 characters (RFC 2045), CRLF between
@@ -857,15 +1038,14 @@ static smtp_conn *get_connection(job *j) {
   return c;
 }
 
-static struct curl_slist *add_recipients(struct curl_slist *l, const char *list) {
-  if (list) {
-    char *copy = strdup(list), *saveptr, *addr = strtok_r(copy, ",", &saveptr);
-    if (addr)
-      do {
-        l = curl_slist_append(l, addrOf(addr));
-      } while ((addr = strtok_r(NULL, ",", &saveptr)));
-    free(copy);
-  }
+// The addr-specs of a list, in order, for RCPT TO.
+static struct curl_slist *add_recipients(struct curl_slist *l, struct address_list *list) {
+  uw_UrmailFfi_emailAddress *as;
+  size_t n = addresses_in_order(list, &as), i;
+
+  for (i = 0; i < n; ++i)
+    l = curl_slist_append(l, as[i]->addr);
+  free(as);
   return l;
 }
 
@@ -873,7 +1053,6 @@ static struct curl_slist *add_recipients(struct curl_slist *l, const char *list)
 static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
                         upload_status *up, int fresh) {
   CURL *curl = c->curl;
-  char *from = strdup(j->h->from);
   CURLcode res;
   long t = timeout_seconds();
 
@@ -915,7 +1094,7 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
     break;
   }
 
-  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, addrOf(from));
+  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, j->h->from->addr);
   curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
   curl_easy_setopt(curl, CURLOPT_READDATA, up);
@@ -924,7 +1103,6 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
   res = curl_easy_perform(curl);
-  free(from);
   return res;
 }
 
@@ -1040,23 +1218,23 @@ static const char *check(uw_UrmailFfi_headers h) {
   return NULL;
 }
 
-// UrmailFfi.problem: what check() says, for Urmail.mkHeaders to report.  An
-// `option string` is the string itself, or NULL for None.
+// UrmailFfi.problem: what check() says, for Urmail.send to report as a
+// Refused.  An `option string` is the string itself, or NULL for None.
 uw_Basis_string uw_UrmailFfi_problem(uw_context ctx, uw_UrmailFfi_headers h) {
   const char *wrong = check(h);
 
   return wrong ? uw_strdup(ctx, wrong) : NULL;
 }
 
-// Headers that Urmail.mkHeaders did not pass, or an attachment that
-// Urmail.Attachment did not: not something the Ur side can produce, so an
-// error of the caller.
+// Headers with a problem Urmail.send did not ask about, or an attachment
+// that Urmail.Attachment did not pass: not something the Ur side can
+// produce, so an error of the caller.
 static void refuse(uw_context ctx, uw_UrmailFfi_headers h, uw_UrmailFfi_attachments attachments) {
   const char *wrong = check(h);
   uw_UrmailFfi_attachments p;
 
   if (wrong)
-    uw_error(ctx, FATAL, "urmail: headers not from mkHeaders: %s", wrong);
+    uw_error(ctx, FATAL, "urmail: headers not checked: %s", wrong);
   for (p = attachments; p; p = p->next)
     if (p->a->error)
       uw_error(ctx, FATAL, "urmail: attachment not from Urmail.Attachment: %s", p->a->error);

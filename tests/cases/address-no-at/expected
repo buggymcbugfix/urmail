@@ -1,0 +1,5 @@
+--- check
+refused: E-mail address has no '@'
+--- server
+(no client connected)
+--- application log

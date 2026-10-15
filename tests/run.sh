@@ -22,9 +22,10 @@
 #               application's log that match, grep -E, are transcribed),
 #               api=io|check (the message is
 #               queued and sent by the application's io task, the default,
-#               or only checked by Urmail.mkHeaders; the transcript's first
-#               part is the statuses the task recorded, or what mkHeaders said)
-#   expected    the transcript: the statuses or mkHeaders's verdict, the
+#               or its parts only parsed, by Urmail.emailAddress, headerText,
+#               messageId and Attachment; the transcript's first part is the
+#               statuses the task recorded, or what the parsers said)
+#   expected    the transcript: the statuses or the parsers' verdict, the
 #               server's transcript, then the application's log
 #
 # The compiler is the one URWEB names, run with the flags in URWEB_FLAGS if

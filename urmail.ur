@@ -1,32 +1,29 @@
-type headers = UrmailFfi.headers
+type emailAddress = UrmailFfi.emailAddress
+type headerText = UrmailFfi.headerText
+type messageId = UrmailFfi.messageId
 type attachment = UrmailFfi.attachment
 
 datatype tls = datatype UrmailFfi.tls
 datatype sendStatus = datatype UrmailFfi.sendStatus
 
-fun mkHeaders r =
+(* A part, parsed, or what is wrong with it. *)
+fun parsed [t] (parse : string -> t) (problem : t -> option string) (s : string) : result t =
 	let
-		fun opt f v h =
-			case v of
-			| None => h
-			| Some s => f s h
-
-		fun all f xs h = List.foldl f h xs
-
-		val h =
-			UrmailFfi.empty
-				|> UrmailFfi.from r.From
-				|> UrmailFfi.subject r.Subject
-				|> opt UrmailFfi.user_agent r.UserAgent
-				|> opt UrmailFfi.messageId r.MessageId
-				|> all UrmailFfi.to r.To
-				|> all UrmailFfi.cc r.Cc
-				|> all UrmailFfi.bcc r.Bcc
+		val v = parse s
 	in
-		case UrmailFfi.problem h of
-		| None => Success h
+		case problem v of
+		| None => Success v
 		| Some e => Failure <xml>{[e]}</xml>
 	end
+
+val emailAddress = parsed UrmailFfi.parseAddress UrmailFfi.addressProblem
+val show_emailAddress = mkShow UrmailFfi.addressString
+
+val headerText = parsed UrmailFfi.parseHeaderText UrmailFfi.headerTextProblem
+val show_headerText = mkShow UrmailFfi.headerTextString
+
+val messageId = parsed UrmailFfi.parseMessageId UrmailFfi.messageIdProblem
+val show_messageId = mkShow UrmailFfi.messageIdString
 
 structure Attachment = struct
 	type name = {AsciiName : string, Utf8Name : option string}
@@ -83,5 +80,27 @@ structure Attachment = struct
 end
 
 fun send r =
-	UrmailFfi.send r.ServerUrl r.Tls r.User r.Password r.Headers r.Text r.Html
-		(List.foldl UrmailFfi.addAttachment UrmailFfi.noAttachments r.Attachments)
+	let
+		fun opt [t ::: Type] (f : t -> UrmailFfi.headers -> UrmailFfi.headers) (v : option t) h =
+			case v of
+			| None => h
+			| Some s => f s h
+
+		fun all f xs h = List.foldl f h xs
+
+		val h =
+			UrmailFfi.empty
+				|> UrmailFfi.from r.From
+				|> UrmailFfi.subject r.Subject
+				|> opt UrmailFfi.user_agent r.UserAgent
+				|> opt UrmailFfi.message_id r.MessageId
+				|> all UrmailFfi.to r.To
+				|> all UrmailFfi.cc r.Cc
+				|> all UrmailFfi.bcc r.Bcc
+	in
+		case UrmailFfi.problem h of
+		| Some e => return (Refused e)
+		| None =>
+			UrmailFfi.send r.ServerUrl r.Tls r.User r.Password h r.Text r.Html
+				(List.foldl UrmailFfi.addAttachment UrmailFfi.noAttachments r.Attachments)
+	end

@@ -1,5 +1,5 @@
---- check
-refused: No recipients specified for e-mail message
+--- status
+Refused: No recipients specified for e-mail message
 --- server
 (no client connected)
 --- application log

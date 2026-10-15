@@ -1,5 +1,8 @@
 #include <urweb.h>
 
+typedef struct address *uw_UrmailFfi_emailAddress;
+typedef struct header_text *uw_UrmailFfi_headerText;
+typedef struct message_id *uw_UrmailFfi_messageId;
 typedef struct headers *uw_UrmailFfi_headers;
 typedef struct attachment *uw_UrmailFfi_attachment;
 typedef struct attachments *uw_UrmailFfi_attachments;  // NULL for none
@@ -15,15 +18,29 @@ struct uw_UrmailFfi_tls {
 };
 typedef struct uw_UrmailFfi_tls *uw_UrmailFfi_tls;
 
+// An address, parsed: never fails; what is wrong with it is an `option
+// string` (the string or NULL), and its text is what it was given, trimmed.
+uw_UrmailFfi_emailAddress uw_UrmailFfi_parseAddress(uw_context, uw_Basis_string);
+uw_Basis_string uw_UrmailFfi_addressProblem(uw_context, uw_UrmailFfi_emailAddress);
+uw_Basis_string uw_UrmailFfi_addressString(uw_context, uw_UrmailFfi_emailAddress);
+
+// The text of a header and a Message-ID, parsed the same way.
+uw_UrmailFfi_headerText uw_UrmailFfi_parseHeaderText(uw_context, uw_Basis_string);
+uw_Basis_string uw_UrmailFfi_headerTextProblem(uw_context, uw_UrmailFfi_headerText);
+uw_Basis_string uw_UrmailFfi_headerTextString(uw_context, uw_UrmailFfi_headerText);
+uw_UrmailFfi_messageId uw_UrmailFfi_parseMessageId(uw_context, uw_Basis_string);
+uw_Basis_string uw_UrmailFfi_messageIdProblem(uw_context, uw_UrmailFfi_messageId);
+uw_Basis_string uw_UrmailFfi_messageIdString(uw_context, uw_UrmailFfi_messageId);
+
 extern uw_UrmailFfi_headers uw_UrmailFfi_empty;
 
-uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
-uw_UrmailFfi_headers uw_UrmailFfi_messageId(uw_context, uw_Basis_string, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context, uw_UrmailFfi_emailAddress, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context, uw_UrmailFfi_emailAddress, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context, uw_UrmailFfi_emailAddress, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context, uw_UrmailFfi_emailAddress, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context, uw_UrmailFfi_headerText, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context, uw_UrmailFfi_headerText, uw_UrmailFfi_headers);
+uw_UrmailFfi_headers uw_UrmailFfi_message_id(uw_context, uw_UrmailFfi_messageId, uw_UrmailFfi_headers);
 
 // An attachment: the filename= every client reads, the filename*= beside it
 // (an `option string`: NULL for None), type/subtype, and the bytes.

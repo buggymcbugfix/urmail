@@ -1,20 +1,42 @@
 (* The C side of urmail, for Urmail (urmail.ur) to wrap.  Applications use
    Urmail. *)
 
-(* Header values, built up one at a time.  The builders never fail: a value
-   they cannot accept is remembered, and [problem] reports it. *)
+(* An address, parsed into its display name and its addr-spec.
+   [parseAddress] never fails: what is wrong with what it was given is what
+   [addressProblem] says, and [addressString] gives the text back as it was
+   given, without the blanks around it. *)
+type emailAddress
+val parseAddress : string -> emailAddress
+val addressProblem : emailAddress -> option string
+val addressString : emailAddress -> string
+
+(* The text of a header (Subject, User-Agent) and a Message-ID, parsed the
+   same way. *)
+type headerText
+val parseHeaderText : string -> headerText
+val headerTextProblem : headerText -> option string
+val headerTextString : headerText -> string
+
+type messageId
+val parseMessageId : string -> messageId
+val messageIdProblem : messageId -> option string
+val messageIdString : messageId -> string
+
+(* The headers of a message, built up one part at a time.  The builders
+   never fail: a part with a problem is remembered, and [problem] reports
+   it. *)
 type headers
 
 val empty : headers
-val from : string -> headers -> headers
-val subject : string -> headers -> headers
-val user_agent : string -> headers -> headers
-val messageId : string -> headers -> headers
-val to : string -> headers -> headers
-val cc : string -> headers -> headers
-val bcc : string -> headers -> headers
+val from : emailAddress -> headers -> headers
+val subject : headerText -> headers -> headers
+val user_agent : headerText -> headers -> headers
+val message_id : messageId -> headers -> headers
+val to : emailAddress -> headers -> headers
+val cc : emailAddress -> headers -> headers
+val bcc : emailAddress -> headers -> headers
 
-(* What is wrong with the headers, if anything: a value a builder refused, no
+(* What is wrong with the headers, if anything: a part with a problem, no
    From, no recipient. *)
 val problem : headers -> option string
 

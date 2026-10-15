@@ -30,6 +30,18 @@ fun enqueue r =
 val logo =
     Urmail.Attachment.blessServedFile _LOC_ (Urmail.Attachment.asciiName "logo.png") "/logo.png"
 
+(* The headers of a queued message, parsed from the text the row holds, or
+   what is wrong with the first part that is not right.  The Message-ID is
+   a function of the row, so that a message sent twice is one message to
+   the receiver. *)
+fun headers r =
+    from <- Urmail.emailAddress r.From;
+    to <- Urmail.emailAddress r.To;
+    subject <- Urmail.headerText r.Subject;
+    messageId <- Urmail.messageId ("<queue-" ^ show r.Id ^ "@you.com>");
+    return {From = from, To = to :: [], Cc = [], Bcc = [], Subject = subject,
+            UserAgent = None, MessageId = Some messageId}
+
 (* Step 1, a transaction: the next message, claimed, with its headers
    checked. *)
 val claim =
@@ -38,9 +50,7 @@ val claim =
         None => return None
       | Some r =>
         dml (UPDATE queue SET Claimed = TRUE WHERE Id = {[r.Id]});
-        case Urmail.mkHeaders {From = r.From, Subject = r.Subject, UserAgent = None,
-                               MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
-                               To = r.To :: [], Cc = [], Bcc = []} of
+        case headers r of
             Failure e =>
             dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
             return None
@@ -71,10 +81,10 @@ task periodic 1 = fn () =>
     case claimed of
         None => return ()
       | Some (r, h, logo, logoUrl) =>
-        status <- Urmail.send {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
-                               Headers = h, Text = r.Text,
-                               Html = Some <xml><body><img src={logoUrl}/><p>{[r.Text]}</p></body></xml>,
-                               Attachments = logo :: []};
+        status <- Urmail.send (h ++ {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
+                                     Text = r.Text,
+                                     Html = Some <xml><body><img src={logoUrl}/><p>{[r.Text]}</p></body></xml>,
+                                     Attachments = logo :: []});
         runTransaction (record r.Id status)
 
 fun main () = return <xml><body>

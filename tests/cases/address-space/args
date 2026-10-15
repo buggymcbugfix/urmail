@@ -1,0 +1,5 @@
+# A space in the local part is refused.
+api=check
+mode=accept
+tls=none
+form=(From='a b@example.com' To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)
