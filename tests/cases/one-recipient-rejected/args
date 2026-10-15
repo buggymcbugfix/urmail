@@ -1,0 +1,5 @@
+# The server accepts one recipient and refuses the other.  libcurl stops at the
+# refusal, so the message goes to nobody and the status is Refused for all.
+mode=reject-bad-rcpt
+tls=none
+form=(From=alice@example.com To=good@example.net,bad@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

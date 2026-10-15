@@ -1,0 +1,7 @@
+# The server refuses the credentials with 535.  libcurl calls that "login
+# denied" and the library takes every 5xx reply for final, so the status is
+# Refused, which says that sending again will not help.  It will, once the
+# password is right.
+mode=reject-auth
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=wrong)

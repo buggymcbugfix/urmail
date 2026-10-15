@@ -1,0 +1,6 @@
+# Implicit TLS: smtps:// in the server URL, the connection is TLS from the
+# first byte, and the certificate is verified against the given CA.
+mode=implicit-tls
+tls=starttls-ca
+url=smtps
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

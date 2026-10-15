@@ -1,0 +1,7 @@
+# Plain with an smtps:// URL is not plain: libcurl takes the scheme for TLS
+# and verifies the certificate against the system's CAs, which do not know
+# the server's.
+mode=implicit-tls
+tls=none
+url=smtps
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

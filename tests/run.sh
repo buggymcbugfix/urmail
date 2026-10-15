@@ -14,9 +14,13 @@
 #               told), form=(...) (the fields of the request, curl -d style;
 #               Attach1..3 spell attachments, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
-#               serves up to N sessions), url=smtp|bare|http (how the
-#               server is named: smtp://host:port, host:port alone, or an
-#               http:// URL, which must be refused), api=io|check (the message is
+#               serves up to N sessions), url=smtp|bare|smtps|http (how the
+#               server is named: smtp://host:port, host:port alone,
+#               smtps://host:port, or an http:// URL, which must be refused),
+#               app_env=(NAME=VALUE ...) (added to the application's
+#               environment), logfilter=REGEX (only the lines of the
+#               application's log that match, grep -E, are transcribed),
+#               api=io|check (the message is
 #               queued and sent by the application's io task, the default,
 #               or only checked by Urmail.mkHeaders; the transcript's first
 #               part is the statuses the task recorded, or what mkHeaders said)
@@ -87,7 +91,7 @@ failed=0
 for case in "${cases[@]}"; do
   dir=$here/cases/$case
   [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=(); sends=1; api=io; url=smtp
+  mode=accept; tls=none; form=(); sends=1; api=io; url=smtp; app_env=(); logfilter=
   # shellcheck disable=SC1090
   . "$dir/args"
   work=$out/$case
@@ -112,7 +116,7 @@ for case in "${cases[@]}"; do
   # The application, fresh for every case so that its log and its queue are
   # the case's.  -d3 prints pid=, port= and status= on fd 3 once it listens.
   sqlite3 "$work/app.db" < "$out/app.sql" >/dev/null   # a PRAGMA in there prints its value
-  eval "$( URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
+  eval "$( env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" "$here/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
   if [ "${status:-}" != OK ]; then
     echo "$case: the test application did not start" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
   fi
@@ -125,6 +129,7 @@ for case in "${cases[@]}"; do
   esac
   case $url in
     smtp) server="smtp://127.0.0.1:$smtp_port" ;;
+    smtps) server="smtps://127.0.0.1:$smtp_port" ;;
     bare) server="127.0.0.1:$smtp_port" ;;
     http) server="http://127.0.0.1:$smtp_port" ;;
     *) die "$case: unknown url form $url" ;;
@@ -176,7 +181,8 @@ for case in "${cases[@]}"; do
     echo "--- server"
     cat "$work/transcript"
     echo "--- application log"
-    cat "$work/app.log"
+    # libcurl ends the lines of its trace with CRLF.
+    if [ -n "$logfilter" ]; then grep -E "$logfilter" "$work/app.log" | tr -d '\r'; else tr -d '\r' < "$work/app.log"; fi
   } > "$work/actual.raw"
   normalize "$work/actual.raw" > "$work/actual"
 

@@ -1,0 +1,6 @@
+# Addresses with a '>' in front of the '<'.  mkHeaders takes them, the
+# envelope gets what follows the '>' as ESMTP parameters (SMTPUTF8 on MAIL
+# FROM, NOTIFY=NEVER on RCPT TO), and the header has a '<' that is never closed.
+mode=accept
+tls=none
+form=(From='alice@example.com> SMTPUTF8 <alice@example.com' To='bob@example.net> NOTIFY=NEVER <bob@example.net' Subject=Hello Body=$'Hi\n' User=alice Password=secret)

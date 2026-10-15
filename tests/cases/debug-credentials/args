@@ -1,0 +1,8 @@
+# URMAIL_DEBUG=1 traces the send on stderr with libcurl's own output, which
+# includes the line that carries the credentials, base64 of "\0alice\0secret".
+# Only the lines that show that are transcribed; the others hold ports.
+mode=accept
+tls=none
+app_env=(URMAIL_DEBUG=1)
+logfilter='^(urmail: sent|> [A-Za-z0-9+/]{16,}=*)[[:space:]]*$'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

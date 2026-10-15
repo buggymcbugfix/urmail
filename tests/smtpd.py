@@ -25,6 +25,16 @@ The modes:
                       message was sent
     hang              no reply at all after the greeting
     no-starttls       STARTTLS is not offered (and refused)
+    reject-auth       every AUTH PLAIN is refused with 535
+    reject-bad-rcpt   a RCPT TO whose address contains "bad" is refused with
+                      550; the others are accepted
+    defer-data        the message is read in full and then declined with 452
+    drop-on-reuse     the first message is accepted; when a second MAIL FROM
+                      arrives on the same connection, the connection is closed
+                      without a reply, as a server does that dropped an idle
+                      session; a new connection is served normally
+    implicit-tls      the connection is TLS from the first byte (smtps://),
+                      and STARTTLS is not offered
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is always
 offered; anything else is refused."""
@@ -45,6 +55,7 @@ class Session:
         self.sslctx = sslctx
         self.transcript = transcript
         self.buf = b""
+        self.messages = 0  # accepted on this connection
 
     def log(self, line):
         self.transcript.append(line)
@@ -134,7 +145,7 @@ class Session:
                     self.log("C: [AUTH PLAIN credentials: " + creds + "]")
                 except Exception:
                     self.log("C: " + blob)
-                self.reply("235 ok")
+                self.reply("535 5.7.8 authentication failed" if self.mode == "reject-auth" else "235 ok")
                 continue
             self.log("C: " + cmd)
             if verb == "EHLO":
@@ -152,12 +163,17 @@ class Session:
             elif verb == "AUTH":
                 self.reply("504 mechanism not supported")
             elif verb == "MAIL":
+                if self.mode == "drop-on-reuse" and self.messages >= 1:
+                    self.log("(server closed the connection)")
+                    return
                 self.reply("250 ok")
             elif verb == "RCPT":
                 if self.mode == "reject-rcpt":
                     self.reply("550 no such user")
                 elif self.mode == "defer-rcpt":
                     self.reply("450 try again later")
+                elif self.mode == "reject-bad-rcpt" and "bad" in cmd:
+                    self.reply("550 no such user")
                 else:
                     self.reply("250 ok")
             elif verb == "DATA":
@@ -175,8 +191,11 @@ class Session:
                     return
                 if self.mode == "reject-data":
                     self.reply("554 rejected")
+                elif self.mode == "defer-data":
+                    self.reply("452 try again later")
                 else:
                     self.reply("250 queued")
+                    self.messages += 1
                 if self.mode == "close-after-one":
                     self.log("(server closed the connection)")
                     return
@@ -233,6 +252,9 @@ def main():
         conn.settimeout(args.timeout)
         session = Session(conn, args.mode, sslctx, transcript)
         try:
+            if args.mode == "implicit-tls":
+                session.conn = sslctx.wrap_socket(conn, server_side=True)
+                transcript.append("(TLS established)")
             session.run()
         except ssl.SSLError:
             transcript.append("(TLS error)")
