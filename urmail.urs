@@ -109,7 +109,8 @@ val send :
 		ServerUrl : string,   (* smtp://host:port, smtps://host:port, or
 		                         host:port, which is smtp:// *)
 		Tls : tls,
-		User : string,        (* for SMTP authentication *)
+		User : string,        (* for SMTP authentication; "" for no login,
+		                         and Password is then not used *)
 		Password : string,
 		From : emailAddress,
 		To : list emailAddress,

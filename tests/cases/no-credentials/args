@@ -1,6 +1,6 @@
-# No user name and no password.  The server offers AUTH, and libcurl still
-# logs in, with empty credentials.  A server that refuses those would refuse
-# the message; there is no way to say that no login is wanted.
+# No user name: no login, although the server offers AUTH.  (With an empty
+# user name set, libcurl would log in with empty credentials, and a server
+# that refuses those would refuse the message.)
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n')

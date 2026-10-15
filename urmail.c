@@ -1160,8 +1160,12 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   if (fresh)
     curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
 
-  curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
-  curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
+  if (*j->user) {
+    curl_easy_setopt(curl, CURLOPT_USERNAME, j->user);
+    curl_easy_setopt(curl, CURLOPT_PASSWORD, j->password);
+  }
+  // else no login: libcurl sends AUTH only when a user name is set.  With
+  // an empty one set it would log in with empty credentials.
   curl_easy_setopt(curl, CURLOPT_URL, j->server);
   // A URL without a scheme is SMTP (libcurl would otherwise guess from the
   // host name, HTTP unless it starts with "smtp."), and nothing else is.

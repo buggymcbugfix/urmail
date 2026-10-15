@@ -108,7 +108,7 @@ datatype sendStatus =
    [attachmentProblem]; Urmail.send sees to it. *)
 val send : string           (* Server, as a libcurl URL *)
            -> tls
-           -> string        (* Username (for SMTP authentication) *)
+           -> string        (* Username (for SMTP authentication; "" for no login) *)
            -> string        (* Password (for SMTP authentication) *)
            -> headers
            -> string        (* Plain text message body *)
