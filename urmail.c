@@ -955,7 +955,8 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
 }
 
 /* ---- Delivery: a persistent connection per server and account, one send at
-   a time on each, and an outcome that says what is known. ---- */
+   a time on each, closed when idle for long or when too many are open, and
+   an outcome that says what is known. ---- */
 
 typedef enum { SENT, REFUSED, NOT_SENT, MAYBE_SENT, NOT_TRIED } outcome_kind;  // NOT_TRIED is Failed (urweb.h has FAILED)
 
@@ -1081,10 +1082,15 @@ static long timeout_seconds(void) {
 typedef struct smtp_conn {
   char *server, *user, *password, *ca;
   enum uw_UrmailFfi_tls_tag tls;
-  CURL *curl;
+  CURL *curl;            // the open connection, or NULL
+  time_t last_used;      // when the last send on it ended
   pthread_mutex_t lock;  // held for the duration of a send on this connection
   struct smtp_conn *next;
 } smtp_conn;
+
+// How many connections may be open at once.  Records are never freed, since
+// a thread may be waiting for one's lock; only the connections are closed.
+#define MAX_OPEN 8
 
 static smtp_conn *conns = NULL;
 static pthread_mutex_t conns_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -1096,6 +1102,56 @@ static void curl_init(void) {
 
 static int str_eq(const char *a, const char *b) {
   return (a == NULL && b == NULL) || (a && b && !strcmp(a, b));
+}
+
+// Close the connections that have been idle for longer than the timeout
+// and, when more than MAX_OPEN would be open once `next` has one, the least
+// recently used of the others, so that a process that sends on many accounts
+// does not hold a socket per account for its life.  Called with conns_lock
+// held.  A connection in use has its lock held and is left alone; the others
+// are locked while this looks at them.
+static void close_idle(smtp_conn *next) {
+  time_t now = time(NULL);
+  long limit = timeout_seconds();
+  smtp_conn *c, **idle;
+  size_t n = 0, n_idle = 0, i, oldest;
+  int open = next->curl ? 0 : 1;
+
+  for (c = conns; c; c = c->next)
+    ++n;
+  idle = malloc(n * sizeof *idle);
+  for (c = conns; c; c = c->next) {
+    if (!c->curl)
+      continue;
+    ++open;
+    if (pthread_mutex_trylock(&c->lock))
+      continue;  // a send is on
+    if (now - c->last_used > limit) {
+      DBG("closing the connection to %s as %s, idle for longer than %ld s", c->server, c->user, limit);
+      curl_easy_cleanup(c->curl);
+      c->curl = NULL;
+      --open;
+      pthread_mutex_unlock(&c->lock);
+    } else if (c == next)
+      pthread_mutex_unlock(&c->lock);  // about to be used: not one to evict
+    else
+      idle[n_idle++] = c;
+  }
+  while (open > MAX_OPEN && n_idle) {
+    for (oldest = 0, i = 1; i < n_idle; ++i)
+      if (idle[i]->last_used < idle[oldest]->last_used)
+        oldest = i;
+    c = idle[oldest];
+    DBG("closing the connection to %s as %s: %d are open", c->server, c->user, open);
+    curl_easy_cleanup(c->curl);
+    c->curl = NULL;
+    --open;
+    pthread_mutex_unlock(&c->lock);
+    idle[oldest] = idle[--n_idle];
+  }
+  for (i = 0; i < n_idle; ++i)
+    pthread_mutex_unlock(&idle[i]->lock);
+  free(idle);
 }
 
 // The connection for this server and account, created on first use.  The
@@ -1117,11 +1173,13 @@ static smtp_conn *get_connection(job *j) {
     c->ca = j->ca ? strdup(j->ca) : NULL;
     c->tls = j->tls;
     c->curl = NULL;
+    c->last_used = 0;
     pthread_mutex_init(&c->lock, NULL);
     c->next = conns;
     conns = c;
     DBG("new connection record for %s as %s", c->server, c->user);
   }
+  close_idle(c);
   pthread_mutex_unlock(&conns_lock);
   return c;
 }
@@ -1318,6 +1376,7 @@ static void deliver(job *j, outcome *o) {
     curl_easy_cleanup(c->curl);
     c->curl = NULL;
   }
+  c->last_used = time(NULL);
   pthread_mutex_unlock(&c->lock);
   curl_slist_free_all(recipients);
 }

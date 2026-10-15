@@ -92,7 +92,9 @@ end
    In io, since a send cannot be undone: an io task claims what is to be sent
    in one transaction, sends, and records the status in another.  The
    connection is kept open for the next message to the same server and
-   account.
+   account, until it has been idle for URMAIL_TIMEOUT seconds or more
+   than 8 connections are open; and sends to one server and account go
+   one at a time, each waiting for the one before it.
 
    The parts of the headers are what [emailAddress], [headerText] and
    [messageId] checked, so nothing in them can be refused here; a message

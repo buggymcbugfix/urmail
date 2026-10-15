@@ -14,7 +14,8 @@
 #               told), form=(...) (the fields of the request, curl -d style;
 #               Attach1..3 spell attachments, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
-#               serves up to N sessions), url=smtp|bare|smtps|http (how the
+#               serves up to N sessions), pause=SECONDS (slept between the
+#               requests), url=smtp|bare|smtps|http (how the
 #               server is named: smtp://host:port, host:port alone,
 #               smtps://host:port, or an http:// URL, which must be refused),
 #               app_env=(NAME=VALUE ...) (added to the application's
@@ -85,6 +86,7 @@ normalize() {
   sed -e 's/^| EHLO .*/| EHLO <host>/; s/^C: EHLO .*/C: EHLO <host>/' \
       -e 's/^| Date: .*/| Date: <date>/' \
       -e 's/^| Message-ID: <[0-9a-f]\{24\}@/| Message-ID: <generated@/' \
+      -e 's/127\.0\.0\.1:[0-9]\{1,5\}/127.0.0.1:<port>/g' \
       "$1"
 }
 
@@ -92,7 +94,7 @@ failed=0
 for case in "${cases[@]}"; do
   dir=$here/cases/$case
   [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=(); sends=1; api=io; url=smtp; app_env=(); logfilter=
+  mode=accept; tls=none; form=(); sends=1; pause=0; api=io; url=smtp; app_env=(); logfilter=
   # shellcheck disable=SC1090
   . "$dir/args"
   work=$out/$case
@@ -151,7 +153,8 @@ for case in "${cases[@]}"; do
     *) die "$case: unknown api $api" ;;
   esac
   http=
-  for _ in $(seq "$sends"); do
+  for i in $(seq "$sends"); do
+    [ "$i" -gt 1 ] && [ "$pause" != 0 ] && sleep "$pause"
     http="$http$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler") "
   done
   if [ "$api" = io ]; then
