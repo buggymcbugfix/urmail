@@ -42,6 +42,14 @@ fun headers r =
     return {From = from, To = to :: [], Cc = [], Bcc = [], Subject = subject,
             UserAgent = None, MessageId = Some messageId}
 
+(* A claim outlives the process that made it: a message the application
+   was sending when it died stays claimed, and may or may not have gone out.
+   Nothing else runs at startup, so every claim is given back then; a
+   message that did go out is sent again with its Message-ID, and dropped
+   by the receiver as a duplicate, as after a MaybeSent. *)
+task initialize = fn () =>
+    dml (UPDATE queue SET Claimed = FALSE WHERE Claimed AND Status IS NULL)
+
 (* Step 1, a transaction: the next message, claimed, with its headers
    checked. *)
 val claim =
@@ -69,7 +77,10 @@ fun record id status =
       | Urmail.Refused why =>
         dml (UPDATE queue SET Status = {[Some ("refused: " ^ why)]} WHERE Id = {[id]})
       | Urmail.NotSent why =>
-        (* Declined for now, or no connection: back into the queue. *)
+        (* Declined for now, or no connection: back into the queue, where
+           the next tick takes it again.  A real queue would wait longer
+           after each refusal, with a column for when to try next, rather
+           than knock every second. *)
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
       | Urmail.MaybeSent _ =>
         (* Back into the queue: sent again, with the same Message-ID. *)
