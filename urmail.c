@@ -652,9 +652,11 @@ static void buf_encoded_words(uw_context ctx, buf *b, const char *s) {
 }
 
 // A header value that is plain text (Subject, User-Agent): as it is when
-// ASCII and short, encoded otherwise.
+// ASCII and short, encoded otherwise.  Text that has the "=?" of an encoded
+// word in it is encoded too, so that a client shows it as it is rather than
+// decoding it.
 static void buf_text_header(uw_context ctx, buf *b, const char *s) {
-  if (is_ascii_text(s) && strlen(s) <= 76)
+  if (is_ascii_text(s) && strlen(s) <= 76 && !strstr(s, "=?"))
     buf_str(ctx, b, s);
   else
     buf_encoded_words(ctx, b, s);
