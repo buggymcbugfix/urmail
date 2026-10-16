@@ -53,7 +53,12 @@ The modes:
     auth-required     MAIL FROM is refused with 530, as a submission server
                       refuses a client that has not logged in
     starttls-drop     STARTTLS is accepted with 220, and the connection is
-                      closed instead of the TLS handshake
+                      closed instead of the TLS handshake: the client's
+                      first message is left unread, so it sees a reset
+    starttls-eof      STARTTLS is accepted with 220, the client's first
+                      message of the handshake is read, and the connection
+                      is closed without an answer: the client sees the
+                      stream end, not a reset
     reject-mail       MAIL FROM is refused with 550 5.7.1, as a server
                       refuses a sender that the account may not use
     reject-mail-size  MAIL FROM is refused with 552 5.3.4: the message is
@@ -96,7 +101,7 @@ MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data"
          "drop-after-data", "drop-before-data", "hang", "no-starttls", "reject-auth",
          "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
          "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
-         "starttls-drop", "reject-mail", "reject-mail-size", "rcpt-needs-login",
+         "starttls-drop", "starttls-eof", "reject-mail", "reject-mail-size", "rcpt-needs-login",
          "reject-rcpt-long", "drop-during-data", "size-limit", "slow",
          "hang-after-data", "trickle")
 
@@ -279,6 +284,10 @@ class Session:
                     continue
                 self.reply("220 go ahead")
                 if self.mode == "starttls-drop":
+                    self.log("(server closed the connection)")
+                    return
+                if self.mode == "starttls-eof":
+                    self.conn.recv(65536)
                     self.log("(server closed the connection)")
                     return
                 if not self.handshake():

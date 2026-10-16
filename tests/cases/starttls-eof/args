@@ -1,0 +1,8 @@
+# The server accepts STARTTLS, reads the client's first message of the
+# handshake and closes the connection without an answer, so that the
+# client sees the stream end where starttls-dropped has it see a reset.
+# Either way a connection lost in the handshake may be there the next time:
+# Deferred.
+mode=starttls-eof
+tls=starttls-ca
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)
