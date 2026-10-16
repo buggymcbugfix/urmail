@@ -1,0 +1,8 @@
+# Four messages for one account, sent by two io tasks at the same time, to
+# a server that is slow to reply, so that the sends overlap: one
+# connection, which the two take turns on, and four messages over it.
+mode=slow
+tls=none
+sends=4
+api=parallel
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

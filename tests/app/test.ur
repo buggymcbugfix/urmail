@@ -4,8 +4,9 @@
    read back from `status`.  `check` shows what Urmail.message makes of the
    fields, for the cases about the checks.  `queueFfi` is `queue` for a
    message that the task makes with UrmailFfi directly, bypassing
-   Urmail.message, as an application could.  The fake SMTP server records
-   what arrives. *)
+   Urmail.message, as an application could.  `queueParallel` is `queue` for
+   messages that go to two io tasks in turn, which send at the same time.
+   The fake SMTP server records what arrives. *)
 
 type fields = { Server : string, Tls : string, Ca : string, User : string, Password : string,
                 From : string, To : string, Cc : string, Bcc : string, Subject : string,
@@ -17,7 +18,7 @@ table job : { Id : int, Server : string, Tls : string, Ca : string, User : strin
               From : string, To : string, Cc : string, Bcc : string, Subject : string,
               Body : string, Html : string, Srcs : string, MessageId : string, UserAgent : string,
               Attach1 : string, Attach2 : string, Attach3 : string,
-              Ffi : bool, Status : option string }
+              Ffi : bool, Lane : int, Status : option string }
   PRIMARY KEY Id
 
 (* A comma-separated list; an empty field means none. *)
@@ -128,18 +129,22 @@ fun ffiMessage [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, Body, User
     end
 
 
-fun enqueue (viaFfi : bool) (r : fields) =
+(* A job goes to the first io task, unless it may go in parallel: then the
+   jobs alternate between the two. *)
+fun enqueue (viaFfi : bool) (parallel : bool) (r : fields) =
     id <- nextval jobIds;
     dml (INSERT INTO job (Id, Server, Tls, Ca, User, Password, From, To, Cc, Bcc, Subject, Body,
-                          Html, Srcs, MessageId, UserAgent, Attach1, Attach2, Attach3, Ffi, Status)
+                          Html, Srcs, MessageId, UserAgent, Attach1, Attach2, Attach3, Ffi, Lane,
+                          Status)
          VALUES ({[id]}, {[r.Server]}, {[r.Tls]}, {[r.Ca]}, {[r.User]}, {[r.Password]}, {[r.From]},
                  {[r.To]}, {[r.Cc]}, {[r.Bcc]}, {[r.Subject]}, {[r.Body]}, {[r.Html]}, {[r.Srcs]},
                  {[r.MessageId]}, {[r.UserAgent]}, {[r.Attach1]}, {[r.Attach2]}, {[r.Attach3]},
-                 {[viaFfi]}, NULL));
+                 {[viaFfi]}, {[if parallel then id % 2 else 1]}, NULL));
     return <xml><body>queued</body></xml>
 
-fun queue r = enqueue False r
-fun queueFfi r = enqueue True r
+fun queue r = enqueue False False r
+fun queueFfi r = enqueue True False r
+fun queueParallel r = enqueue False True r
 
 fun record id s = dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[id]})
 
@@ -148,25 +153,33 @@ fun record id s = dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[id]})
    the cases about the checks post to `check` instead.  A send that fails
    ends the task's run, so for a message made with UrmailFfi, which send is
    expected to refuse that way, a status is recorded first. *)
-task periodic 1 = fn () =>
-    jobs <- runTransaction (queryL1 (SELECT * FROM job WHERE job.Status IS NULL ORDER BY job.Id));
-    _ <- List.mapM (fn j =>
-                       if j.Ffi then
-                           runTransaction (record j.Id "sending a message made with UrmailFfi");
-                           s <- UrmailFfi.send j.Server (tls j) j.User j.Password (ffiMessage j);
-                           runTransaction (record j.Id ("UrmailFfi.send gave " ^ (case s of
-                                                                                     UrmailFfi.Sent => "Sent"
-                                                                                   | _ => "something else")))
-                       else
-                           s <- (case message j of
-                                     Failure e => return ("Invalid: " ^ show e)
-                                   | Success m =>
-                                     s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
-                                                       Password = j.Password, Message = m};
-                                     return (show s));
-                           runTransaction (record j.Id s))
-                   jobs;
-    return ()
+fun sendJob j =
+    if j.Ffi then
+        runTransaction (record j.Id "sending a message made with UrmailFfi");
+        s <- UrmailFfi.send j.Server (tls j) j.User j.Password (ffiMessage j);
+        runTransaction (record j.Id ("UrmailFfi.send gave " ^ (case s of
+                                                                  UrmailFfi.Sent => "Sent"
+                                                                | _ => "something else")))
+    else
+        s <- (case message j of
+                  Failure e => return ("Invalid: " ^ show e)
+                | Success m =>
+                  s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
+                                    Password = j.Password, Message = m};
+                  return (show s));
+        runTransaction (record j.Id s)
+
+(* The jobs of a task's lane, one after the other.  Each transaction only
+   reads or starts by writing, so that two tasks at once do not run into
+   SQLite's refusal to let a transaction that has read begin to write once
+   another has written. *)
+fun work (lane : int) =
+    jobs <- runTransaction (queryL1 (SELECT * FROM job WHERE job.Status IS NULL AND job.Lane = {[lane]}
+                                     ORDER BY job.Id));
+    List.app sendJob jobs
+
+task periodic 1 = fn () => work 1
+task periodic 1 = fn () => work 0
 
 fun status () =
     rows <- queryX1 (SELECT job.Status FROM job WHERE job.Status IS NOT NULL ORDER BY job.Id)
@@ -202,5 +215,12 @@ fun main () : transaction page = return <xml><body>
     <textarea{#Body}/> <textbox{#Html}/> <textbox{#Srcs}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
     <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
     <submit action={queueFfi}/>
+  </form>
+  <form>
+    <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
+    <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
+    <textarea{#Body}/> <textbox{#Html}/> <textbox{#Srcs}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
+    <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
+    <submit action={queueParallel}/>
   </form>
 </body></xml>

@@ -16,8 +16,10 @@
 #               Attach1..3 spell attachments and images, and Srcs lists the
 #               img srcs of the HTML version, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
-#               serves up to N sessions), pause=SECONDS (slept between the
-#               requests), url=smtp|bare|smtps|http|smtp-path|smtp-userinfo
+#               serves up to N sessions, one after the other, or all at
+#               once with concurrent=1), vary=FIELD (the field's value has
+#               the request's number appended, 1 to N), pause=SECONDS
+#               (slept between the requests), url=smtp|bare|smtps|http|smtp-path|smtp-userinfo
 #               (how the server is named: smtp://host:port, host:port alone,
 #               smtps://host:port, an http:// URL, which must be refused,
 #               smtp://host:port/mail.example.com, whose path libcurl sends
@@ -26,12 +28,13 @@
 #               app_env=(NAME=VALUE ...) (added to the application's
 #               environment), logfilter=REGEX (only the lines of the
 #               application's log that match, grep -E, are transcribed),
-#               api=io|check|ffi (the message is
+#               api=io|check|ffi|parallel (the message is
 #               queued and sent by the application's io task, the default,
 #               or only checked by Urmail.message, or made by the task with
-#               UrmailFfi's builders and sent with UrmailFfi.send; the
-#               transcript's first part is the statuses the task recorded,
-#               or what Urmail.message said).  The file runs in a shell of its own,
+#               UrmailFfi's builders and sent with UrmailFfi.send, or sent
+#               by whichever of two io tasks takes it first, which run at
+#               the same time; the transcript's first part is the statuses
+#               the tasks recorded, or what Urmail.message said).  The file runs in a shell of its own,
 #               under set -u; a setting with a value not listed here, or a
 #               variable that is not a setting and whose name does not
 #               start with '_', means the case cannot run.
@@ -253,6 +256,8 @@ read_args() {
     tls=none
     form=()
     sends=1
+    concurrent=0
+    vary=
     pause=0
     api=io
     url=smtp
@@ -266,7 +271,7 @@ read_args() {
       echo "not a setting:" $_unknown >&2
       exit 1
     fi
-    declare -p mode tls form sends pause api url app_env logfilter
+    declare -p mode tls form sends concurrent vary pause api url app_env logfilter
   )
 }
 
@@ -319,9 +324,17 @@ run_case() {
     io) handler=queue ;;
     check) handler=check ;;
     ffi) handler=queueFfi ;;
+    parallel) handler=queueParallel ;;
     *) cannot_run "unknown api $api"; return ;;
   esac
   [[ $sends =~ ^[1-9][0-9]*$ ]] || { cannot_run "sends=$sends is not a number of requests"; return; }
+  [[ $concurrent =~ ^[01]$ ]] || { cannot_run "concurrent=$concurrent is not 0 or 1"; return; }
+  if [ -n "$vary" ]; then
+    case " $fields " in
+      *" $vary "*) ;;
+      *) cannot_run "vary=$vary is not a field"; return ;;
+    esac
+  fi
   [[ $pause =~ ^[0-9]+$ ]] || { cannot_run "pause=$pause is not a whole number of seconds"; return; }
   for kv in "${form[@]}"; do
     f=${kv%%=*}
@@ -353,6 +366,7 @@ run_case() {
     # waits for the statuses.
     srv_args=(--transcript "$work/transcript" --mode "$mode" --port-file "$work/port" --sessions "$sends"
               --timeout $((pause * sends + status_limit)))
+    [ "$concurrent" = 1 ] && srv_args+=(--concurrent)
     [ "$mode" != no-starttls ] && srv_args+=(--cert "$out/cert.pem" --key "$out/key.pem")
     python3 "$here/smtpd.py" "${srv_args[@]}" 2> "$work/smtpd.err" &
     srv_pid=$!
@@ -396,6 +410,7 @@ run_case() {
   # as such.
   mkdir "$work/fields"
   for f in $fields; do
+    [ "$f" = "$vary" ] && continue
     if [ -n "${value[$f]-}" ]; then
       printf '%s' "${value[$f]}" > "$work/fields/$f"
       curl_args+=(--data-urlencode "$f@$work/fields/$f")
@@ -405,7 +420,13 @@ run_case() {
   done
   for ((i = 1; i <= sends; ++i)); do
     [ "$i" -gt 1 ] && [ "$pause" != 0 ] && sleep "$pause"
-    code=$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler")
+    if [ -n "$vary" ]; then
+      printf '%s%d' "${value[$vary]-}" "$i" > "$work/fields/$vary"
+      code=$(curl "${curl_args[@]}" --data-urlencode "$vary@$work/fields/$vary" \
+                  "http://127.0.0.1:$app_port/Test/$handler")
+    else
+      code=$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler")
+    fi
     if [ "$code" != 200 ]; then
       case_failed "request $i $(answered "$code")"; cat "$work/app.log" >&2; stop_case; return
     fi

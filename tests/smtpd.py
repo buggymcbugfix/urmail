@@ -7,7 +7,9 @@ It listens on 127.0.0.1 at a free port, writes the port to --port-file (or
 stdout) once listening, serves one session (--sessions N: up to N, one after
 the other, each headed in the transcript), writes the transcript and exits.
 It waits for a client for --timeout seconds, or until SIGTERM, which says
-that none is coming.  The transcript has one line per command and reply,
+that none is coming.  With --concurrent, it serves the sessions at the
+same time, and lists them sorted by what they hold, since the order the
+clients come in is not fixed.  The transcript has one line per command and reply,
 `C: ...` and `S: ...`, and the message as delivered under `MESSAGE:`, one
 line per CRLF line, with the leading dot of a line removed, as a server
 undoes dot-stuffing (RFC 5321, section 4.5.2).  What the client sent is
@@ -65,6 +67,8 @@ The modes:
     size-limit        SIZE 1000 is offered (RFC 1870): a MAIL FROM that
                       declares more, and a message longer, are refused with
                       552 5.3.4
+    slow              as accept, but each reply comes a tenth of a second
+                      late, so that sends that go at the same time overlap
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is
 offered unless the mode says otherwise; anything else is refused.
@@ -78,6 +82,7 @@ import signal
 import socket
 import ssl
 import sys
+import threading
 import time
 
 CRLF = b"\r\n"
@@ -87,7 +92,10 @@ MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data"
          "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
          "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
          "starttls-drop", "reject-mail", "reject-mail-size", "rcpt-needs-login",
-         "reject-rcpt-long", "drop-during-data", "size-limit")
+         "reject-rcpt-long", "drop-during-data", "size-limit", "slow")
+
+# How late slow's replies come, in seconds.
+SLOW_DELAY = 0.1
 
 # The SIZE that size-limit offers.
 SIZE_LIMIT = 1000
@@ -135,6 +143,8 @@ class Session:
         self.transcript.append(line)
 
     def reply(self, text):
+        if self.mode == "slow":
+            time.sleep(SLOW_DELAY)
         for line in text.split("\n"):
             self.log("S: " + line.rstrip())
         self.conn.sendall(text.replace("\n", "\r\n").encode() + CRLF)
@@ -346,6 +356,8 @@ def main():
                     help="give up waiting for the client after this many seconds")
     ap.add_argument("--sessions", type=more_than_zero(int), default=1,
                     help="serve up to this many sessions, one after the other")
+    ap.add_argument("--concurrent", action="store_true",
+                    help="serve the sessions at the same time, each in a thread")
     args = ap.parse_args()
     if args.list_modes:
         print("\n".join(MODES))
@@ -361,7 +373,7 @@ def main():
     lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     lsock.bind(("127.0.0.1", 0))
-    lsock.listen(1)
+    lsock.listen(args.sessions)
     port = lsock.getsockname()[1]
 
     # SIGTERM, which the runner sends once the application is gone: no client
@@ -390,20 +402,8 @@ def main():
                 pass
         return None
 
-    if args.port_file:
-        with open(args.port_file, "w") as f:
-            f.write("%d\n" % port)
-    else:
-        print(port, flush=True)
-
-    transcript = []
-    for n in range(args.sessions):
-        if args.sessions > 1:
-            transcript.append("--- session %d" % (n + 1))
-        conn = accept()
-        if conn is None:
-            transcript.append("(no client connected)")
-            break
+    def serve(conn, transcript):
+        """One session, to its end, into its transcript."""
         conn.settimeout(args.timeout)
         session = Session(conn, args.mode, sslctx, transcript)
         try:
@@ -419,6 +419,43 @@ def main():
                 session.conn.close()
             except Exception:
                 pass
+
+    if args.port_file:
+        with open(args.port_file, "w") as f:
+            f.write("%d\n" % port)
+    else:
+        print(port, flush=True)
+
+    transcript = []
+    if args.concurrent:
+        # Each session in a thread of its own, with a transcript of its own.
+        # The order in which clients come is not the transcript's business,
+        # so the sessions are listed sorted by what they hold.
+        sessions, threads = [], []
+        while len(sessions) < args.sessions:
+            conn = accept()
+            if conn is None:
+                break
+            sessions.append([])
+            threads.append(threading.Thread(target=serve, args=(conn, sessions[-1])))
+            threads[-1].start()
+        for t in threads:
+            t.join()
+        for n, lines in enumerate(sorted(sessions, key="\n".join)):
+            transcript.append("--- session %d" % (n + 1))
+            transcript.extend(lines)
+        if len(sessions) < args.sessions:
+            transcript.append("--- session %d" % (len(sessions) + 1))
+            transcript.append("(no client connected)")
+    else:
+        for n in range(args.sessions):
+            if args.sessions > 1:
+                transcript.append("--- session %d" % (n + 1))
+            conn = accept()
+            if conn is None:
+                transcript.append("(no client connected)")
+                break
+            serve(conn, transcript)
     with open(args.transcript, "w") as f:
         f.write("\n".join(transcript) + "\n")
     # Exit now, not through Python's exit, which restores the default action
