@@ -1,0 +1,5 @@
+# A subject with a word longer than a line of 78 characters: a URL.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="Download: https://example.com/$(printf 'p%.0s' $(seq 100))/file.pdf (valid for 7 days)")

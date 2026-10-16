@@ -1,0 +1,5 @@
+# A long subject in German, mostly ASCII: what a shop sends.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="Ihre Bestellbestätigung Nr. 42 vom 16.10.2026: vielen Dank für Ihren Einkauf bei uns")

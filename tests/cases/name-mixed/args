@@ -1,0 +1,6 @@
+# A display name with words that are not ASCII and words with characters
+# that a name in a header can only have in quotes.
+mode=accept
+tls=none
+form=(From="Dr. Jürgen Müller-Lüdenscheidt (Einkauf) <j@example.com>"
+      To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

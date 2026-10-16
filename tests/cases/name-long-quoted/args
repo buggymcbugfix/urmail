@@ -1,0 +1,5 @@
+# A display name of 76 characters with a comma, so in quotes.
+mode=accept
+tls=none
+form=(From='"Example Shop GmbH, Customer Service Department for Orders and Returns" <shop@example.com>'
+      To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)
