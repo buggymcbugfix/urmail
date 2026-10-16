@@ -31,6 +31,49 @@ typedef struct address *uw_UrmailFfi_emailAddress;
 // section 2.1.1).
 #define MAX_LINE 998
 
+// Whether s[0..n) is all ASCII.
+static int is_ascii(const unsigned char *s, size_t n) {
+  size_t i;
+
+  for (i = 0; i < n; ++i)
+    if (s[i] >= 0x80)
+      return 0;
+  return 1;
+}
+
+// Whether s[0..n) is UTF-8 as RFC 3629 has it: no overlong forms, no
+// surrogates, nothing above U+10FFFF.
+static int is_utf8(const unsigned char *s, size_t n) {
+  size_t i = 0, len, k;
+  unsigned long c, min;
+
+  while (i < n) {
+    if (s[i] < 0x80) {
+      ++i;
+      continue;
+    }
+    if ((s[i] & 0xE0) == 0xC0)
+      len = 2, c = s[i] & 0x1F, min = 0x80;
+    else if ((s[i] & 0xF0) == 0xE0)
+      len = 3, c = s[i] & 0x0F, min = 0x800;
+    else if ((s[i] & 0xF8) == 0xF0)
+      len = 4, c = s[i] & 0x07, min = 0x10000;
+    else
+      return 0;
+    if (n - i < len)
+      return 0;
+    for (k = 1; k < len; ++k) {
+      if ((s[i+k] & 0xC0) != 0x80)
+        return 0;
+      c = c << 6 | (s[i+k] & 0x3F);
+    }
+    if (c < min || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
+      return 0;
+    i += len;
+  }
+  return 1;
+}
+
 // The characters of RFC 5322's atext, which a local part is made of (with
 // dots between runs of them) and which a display name may hold unquoted.
 static int is_atext(unsigned char c) {
@@ -103,6 +146,8 @@ static const char *addr_spec(const char *s) {
   }
 }
 
+static const char *text_problem(uw_context ctx, const char *s, const char *what);
+
 // Parse "local@domain" or "Name <local@domain>".  The addr-spec is what
 // stands between the last '<' and a final '>', or the whole when there are
 // no brackets; the name is what stands before that '<', and may be anything
@@ -130,10 +175,6 @@ static void parse_address(uw_context ctx, const char *s, struct address *a) {
       a->error = "E-mail address contains a line break";
       return;
     }
-  if (n > 2000) {
-    a->error = "E-mail address is too long";
-    return;
-  }
   if (!n) {
     a->error = "Empty e-mail address";
     return;
@@ -163,6 +204,8 @@ static void parse_address(uw_context ctx, const char *s, struct address *a) {
     a->addr = a->text;
 
   a->error = addr_spec(a->addr);
+  if (!a->error && a->name)
+    a->error = text_problem(ctx, a->name, "Display name");
 }
 
 uw_UrmailFfi_emailAddress uw_UrmailFfi_parseAddress(uw_context ctx, uw_Basis_string s) {
@@ -212,18 +255,31 @@ static size_t addresses_in_order(struct address_list *l, uw_UrmailFfi_emailAddre
 /* ---- The checks of the parts of a message.  Each returns what is wrong,
    or NULL. ---- */
 
-// A header value may be anything but a line break; long or non-ASCII values
-// are encoded and folded when the message is assembled (RFC 2047 and 5322).
-// The limit is generous but there has to be one: it bounds the buffers.
-static const char *header(uw_Basis_string s) {
-  if (strlen(s) > 2000)
-    return "Header value too long";
+// A text that goes into a header, a subject or a display name, say: UTF-8,
+// with no line break, at most 998 bytes, a line's worth.  It is folded
+// and encoded when the message is assembled (RFC 5322 and 2047), so it
+// may be longer than a line, but a limit bounds the work, and one line's
+// worth is plenty for a header.
+#define MAX_HEADER_TEXT MAX_LINE
 
-  for (; *s; ++s)
-    if (*s == '\r' || *s == '\n')
-      return "Header value contains newline";
+// A number in a message.
+#define DIGITS(x) #x
+#define NUMBER(x) DIGITS(x)
 
+static const char *text_problem(uw_context ctx, const char *s, const char *what) {
+  size_t n = strlen(s);
+
+  if (strpbrk(s, "\r\n"))
+    return uw_Basis_mstrcat(ctx, what, " contains a line break", NULL);
+  if (n > MAX_HEADER_TEXT)
+    return uw_Basis_mstrcat(ctx, what, " is longer than " NUMBER(MAX_HEADER_TEXT) " bytes", NULL);
+  if (!is_utf8((const unsigned char *)s, n))
+    return uw_Basis_mstrcat(ctx, what, " is not UTF-8", NULL);
   return NULL;
+}
+
+static const char *header(uw_context ctx, uw_Basis_string s) {
+  return text_problem(ctx, s, "Header value");
 }
 
 #define MESSAGE_ID_HEADER "Message-ID: "
@@ -291,18 +347,25 @@ static const char *part_name(uw_Basis_string s) {
   if (!*s)
     return "name is empty";
   if (strlen(s) > NAME_MAX_BYTES)
-    return "name is longer than 255 bytes";
+    return "name is longer than " NUMBER(NAME_MAX_BYTES) " bytes";
   for (p = s; *p; ++p) {
     if ((unsigned char)*p < 0x20 || *p == 0x7F)
       return "name contains a control character";
     if (*p == '/' || *p == '\\')
       return "name contains '/' or '\\'";
   }
+  if (!is_utf8((const unsigned char *)s, strlen(s)))
+    return "name is not UTF-8";
   return NULL;
 }
 
+// The longest type or subtype of a MIME type (RFC 6838, section 4.2).
+#define MAX_MIME_NAME 127
+
 // A MIME type as it goes into Content-Type: type/subtype of the characters
-// Basis.checkMime allows, so no parameters, and exactly one slash.
+// Basis.checkMime allows, so no parameters, and exactly one slash; each
+// name starting with a letter or digit and at most 127 characters long, as
+// RFC 6838 has them.
 static const char *mime_type(uw_Basis_string s) {
   const char *p, *slash = NULL;
 
@@ -316,6 +379,10 @@ static const char *mime_type(uw_Basis_string s) {
   }
   if (!slash || slash == s || !slash[1])
     return "MIME type is not of the form type/subtype";
+  if (slash - s > MAX_MIME_NAME || strlen(slash + 1) > MAX_MIME_NAME)
+    return "MIME type has a type or subtype longer than " NUMBER(MAX_MIME_NAME) " characters";
+  if (!isalnum((unsigned char)s[0]) || !isalnum((unsigned char)slash[1]))
+    return "MIME type has a type or subtype that does not start with a letter or digit";
   return NULL;
 }
 
@@ -411,7 +478,25 @@ static char *quoted_value(uw_context ctx, const char *s) {
       strcpy(o, "\"...");
       return out;
     }
-    if (c == '"' || c == '\\') {
+    if (c >= 0x80) {
+      // A character of UTF-8 as it is, a byte that is not part of one as
+      // \xNN, so that the line is UTF-8 whatever the value.
+      size_t len = (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 0;
+      // is_utf8 stops at the first byte that is not a continuation byte,
+      // so it does not read past the NUL.
+      if (len && is_utf8((const unsigned char *)s, len)) {
+        if (o + len > out + 1 + SHOWN_BYTES) {
+          strcpy(o, "\"...");
+          return out;
+        }
+        memcpy(o, s, len);
+        o += len;
+        s += len - 1;
+      } else {
+        sprintf(o, "\\x%02X", c);
+        o += 4;
+      }
+    } else if (c == '"' || c == '\\') {
       *o++ = '\\';
       *o++ = c;
     } else if (c == '\n') {
@@ -495,7 +580,7 @@ uw_UrmailFfi_message uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_Urma
 
 uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
-  const char *e = header(s);
+  const char *e = header(ctx, s);
 
   if (e)
     add_problem(ctx, m2, "Subject", s, e);
@@ -505,7 +590,7 @@ uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_
 
 uw_UrmailFfi_message uw_UrmailFfi_userAgent(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
-  const char *e = header(s);
+  const char *e = header(ctx, s);
 
   if (e)
     add_problem(ctx, m2, "UserAgent", s, e);
@@ -526,6 +611,8 @@ uw_UrmailFfi_message uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, u
 uw_UrmailFfi_message uw_UrmailFfi_text(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
+  if (!is_utf8((const unsigned char *)s, strlen(s)))
+    add_problem(ctx, m2, "PlainTextBody", NULL, "not UTF-8");
   m2->text = s;
   return m2;
 }
@@ -540,6 +627,8 @@ static void forget_lookup(uw_UrmailFfi_message m) {
 uw_UrmailFfi_message uw_UrmailFfi_html(uw_context ctx, uw_Basis_string page, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
+  if (!is_utf8((const unsigned char *)page, strlen(page)))
+    add_problem(ctx, m2, "HtmlBody", NULL, "the page is not UTF-8");
   m2->page = page;
   forget_lookup(m2);
   return m2;
@@ -687,6 +776,53 @@ uw_UrmailFfi_message uw_UrmailFfi_lookUpImages(uw_context ctx, uw_UrmailFfi_mess
   return m2;
 }
 
+// The most recipients a message may have: RFC 5321 says a server must take
+// 100 (section 4.5.3.1.8), and may refuse more for now, again and again.
+#define MAX_RECIPIENTS 100
+
+// The most bytes of text, HTML, attachments and images a message may have,
+// 18 MiB: it goes out base64-encoded as at most 25 MiB, a common limit of
+// servers.  A server with a lower one says so (SIZE, RFC 1870), and send
+// declares the size, so that the server refuses before the upload.
+#define MAX_CONTENT (18 * 1024 * 1024)
+
+// Whether two addr-specs name one mailbox: the local part as it is, the
+// domain in any case (RFC 5321, section 2.4).
+static int same_mailbox(const char *a, const char *b) {
+  const char *at_a = strchr(a, '@'), *at_b = strchr(b, '@');
+
+  return at_a - a == at_b - b && !strncmp(a, b, at_a - a) && !strcasecmp(at_a, at_b);
+}
+
+// The addr-specs of To, Cc and Bcc, in the order given, each mailbox once:
+// what the envelope gets, the RCPT TO commands.  At most `limit` of them;
+// addresses with a problem are left out.
+static size_t envelope(uw_context ctx, uw_UrmailFfi_message m, const char ***out, size_t limit) {
+  struct address_list *lists[3] = {m->to, m->cc, m->bcc}, *l;
+  uw_UrmailFfi_emailAddress *as;
+  size_t total = 0, count = 0, n, i, j;
+  int k;
+  const char **r;
+
+  for (k = 0; k < 3; ++k)
+    for (l = lists[k]; l; l = l->next)
+      ++total;
+  r = uw_malloc(ctx, (total ? total : 1) * sizeof *r);
+  for (k = 0; k < 3; ++k) {
+    n = addresses_in_order(lists[k], &as);
+    for (i = 0; i < n && count < limit; ++i) {
+      if (as[i]->error)
+        continue;
+      for (j = 0; j < count && !same_mailbox(r[j], as[i]->addr); ++j);
+      if (j == count)
+        r[count++] = as[i]->addr;
+    }
+    free(as);
+  }
+  *out = r;
+  return count;
+}
+
 // The message complete, with a problem for each part it lacks, so that
 // send can rely on them.  Urmail.message gives every part, and the
 // recipients may be missing only there; the rest can only be missing from
@@ -704,6 +840,24 @@ uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m)
     add_problem(ctx, m2, "PlainTextBody", NULL, "not given");
   if (m2->page && !m2->html)
     add_problem(ctx, m2, "HtmlBody", NULL, "its img srcs were not looked up after it and its Images were given");
+  {
+    const char **rcpt;
+    if (envelope(ctx, m2, &rcpt, MAX_RECIPIENTS + 1) > MAX_RECIPIENTS)
+      add_problem(ctx, m2, "To, Cc and Bcc", NULL, "more than " NUMBER(MAX_RECIPIENTS) " recipients");
+  }
+  {
+    struct part_list *l;
+    uw_Basis_int size = (m2->text ? strlen(m2->text) : 0) + (m2->page ? strlen(m2->page) : 0);
+    for (l = m2->attachments; l; l = l->next)
+      size += l->part->data.size;
+    for (l = m2->images; l; l = l->next)
+      size += l->part->data.size;
+    if (size > MAX_CONTENT)
+      add_problem(ctx, m2, "The message", NULL,
+                  uw_Basis_mstrcat(ctx, "its text, HTML, attachments and images come to ", uw_Basis_intToString(ctx, size),
+                                   " bytes, more than the ", uw_Basis_intToString(ctx, MAX_CONTENT), " allowed",
+                                   NULL));
+  }
   m2->finished = 1;
   return m2;
 }
@@ -742,6 +896,8 @@ typedef struct {
   enum uw_UrmailFfi_tls_tag tls;
   const char *message;
   size_t length;
+  const char **recipients;  // the envelope's
+  size_t n_recipients;
 } job;
 
 typedef struct {
@@ -870,49 +1026,6 @@ static void buf_base64(uw_context ctx, buf *b, const unsigned char *s, size_t n)
                  b64[(s[i+1] & 15) << 2], '='};
     buf_append(ctx, b, q, 4);
   }
-}
-
-// Whether s[0..n) is all ASCII.
-static int is_ascii(const unsigned char *s, size_t n) {
-  size_t i;
-
-  for (i = 0; i < n; ++i)
-    if (s[i] >= 0x80)
-      return 0;
-  return 1;
-}
-
-// Whether s[0..n) is UTF-8 as RFC 3629 has it: no overlong forms, no
-// surrogates, nothing above U+10FFFF.
-static int is_utf8(const unsigned char *s, size_t n) {
-  size_t i = 0, len, k;
-  unsigned long c, min;
-
-  while (i < n) {
-    if (s[i] < 0x80) {
-      ++i;
-      continue;
-    }
-    if ((s[i] & 0xE0) == 0xC0)
-      len = 2, c = s[i] & 0x1F, min = 0x80;
-    else if ((s[i] & 0xF0) == 0xE0)
-      len = 3, c = s[i] & 0x0F, min = 0x800;
-    else if ((s[i] & 0xF8) == 0xF0)
-      len = 4, c = s[i] & 0x07, min = 0x10000;
-    else
-      return 0;
-    if (n - i < len)
-      return 0;
-    for (k = 1; k < len; ++k) {
-      if ((s[i+k] & 0xC0) != 0x80)
-        return 0;
-      c = c << 6 | (s[i+k] & 0x3F);
-    }
-    if (c < min || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
-      return 0;
-    i += len;
-  }
-  return 1;
 }
 
 /* ---- Header values: folded at blanks, so that a line keeps to 78
@@ -2113,16 +2226,6 @@ static smtp_conn *get_connection(job *j) {
   return c;
 }
 
-// The addr-specs of a list, in order, for RCPT TO.
-static struct curl_slist *add_recipients(struct curl_slist *l, struct address_list *list) {
-  uw_UrmailFfi_emailAddress *as;
-  size_t n = addresses_in_order(list, &as), i;
-
-  for (i = 0; i < n; ++i)
-    l = curl_slist_append(l, as[i]->addr);
-  free(as);
-  return l;
-}
 
 // One attempt; `fresh` forces a new TCP connection.  `t` records the
 // exchange.
@@ -2185,9 +2288,25 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
   curl_easy_setopt(curl, CURLOPT_READDATA, up);
   curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+  // The size, for MAIL FROM's SIZE= when the server offers SIZE (RFC 1870),
+  // so that one with a lower limit refuses before the upload.
+  curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)j->length);
 
   res = curl_easy_perform(curl);
   return res;
+}
+
+// Whether a server URL has credentials in it, user@ or user:password@
+// before the host.  libcurl would log in with them where no User is given,
+// and the trace would show them.
+static int has_credentials(const char *url) {
+  const char *p = strstr(url, "://");
+
+  p = p ? p + 3 : url;
+  for (; *p && *p != '/' && *p != '?' && *p != '#'; ++p)
+    if (*p == '@')
+      return 1;
+  return 0;
 }
 
 // Send the job's message, and say what became of it: SENT, or what
@@ -2196,16 +2315,22 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
 // any of the message went out may have been closed by the server while
 // idle, so one more attempt is made then, on a fresh connection.
 static void deliver(job *j, outcome *o) {
-  smtp_conn *c = get_connection(j);
+  smtp_conn *c;
   struct curl_slist *recipients = NULL;
   upload_status up;
   trace t;
   CURLcode res;
   int fresh = 0, tries = 0;
+  size_t i;
 
-  recipients = add_recipients(recipients, j->m->to);
-  recipients = add_recipients(recipients, j->m->cc);
-  recipients = add_recipients(recipients, j->m->bcc);
+  if (has_credentials(j->server)) {
+    o->reply.code = 0;
+    decided(o, MISCONFIGURED, "the server URL has credentials in it; give them as User and Password", NULL);
+    return;
+  }
+  c = get_connection(j);
+  for (i = 0; i < j->n_recipients; ++i)
+    recipients = curl_slist_append(recipients, j->recipients[i]);
 
   pthread_mutex_lock(&c->lock);
   if (!c->curl)
@@ -2356,6 +2481,7 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
     free(why.s);
     uw_error(ctx, FATAL, "urmail: send was given a message with problems (Urmail.message refuses those): %s", text);
   }
+  j.n_recipients = envelope(ctx, m, &j.recipients, (size_t)-1);
   assemble(ctx, &b, m);
 
   j.m = m;

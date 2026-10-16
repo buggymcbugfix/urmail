@@ -5,8 +5,9 @@
    single dots between them; domain is labels of letters, digits and inner
    hyphens, joined by dots; both ASCII, the whole at most 254 bytes.
    Quoted local parts ("a b"@x), address literals ([127.0.0.1]) and
-   anything after the '>' are refused.  The name may be anything but a
-   line break; a name given in quotes keeps its meaning.  [message] parses
+   anything after the '>' are refused.  The name may be any UTF-8 but a
+   line break, at most 998 bytes; a name given in quotes keeps its
+   meaning.  [message] parses
    its addresses this way; this is for checking one on its own, a form
    field say.  [show] gives the text back. *)
 type emailAddress
@@ -17,9 +18,10 @@ val show_emailAddress : show emailAddress
    checks it.  Name is what the recipient sees: not empty, at most 255
    bytes, no control character, '/' or '\'.  A name that is not ASCII is
    sent as an RFC 2231 filename*, beside an ASCII copy with '_' for each
-   other character, for clients that do not read filename*.  A Blob's
-   MimeType is type/subtype and must be allowed by the project file
-   (`allow mime`).  A ServedFile is the file a `file` directive serves at
+   other character, for clients that do not read filename*; it must be
+   UTF-8.  A Blob's MimeType is type/subtype, each at most 127 characters
+   and starting with a letter or digit, as RFC 6838 has them, and must be
+   allowed by the project file (`allow mime`).  A ServedFile is the file a `file` directive serves at
    exactly ServedPath, with the directive's bytes and MIME type; its name
    is the path's last segment unless Name gives one.  A text/* attachment
    whose bytes are UTF-8, and not all ASCII, is labelled charset=utf-8;
@@ -36,9 +38,11 @@ type message
    each naming the field and the value given (cut after 60 characters,
    line breaks escaped):
 
-   - From, To, Cc and Bcc, as [emailAddress] parses them, and a recipient
-     among To, Cc and Bcc;
-   - Subject and UserAgent: no line break, at most 2000 bytes;
+   - From, To, Cc and Bcc, as [emailAddress] parses them, and at least
+     one recipient among To, Cc and Bcc, at most 100 (RFC 5321 says a
+     server must take that many; an address given twice counts once);
+   - Subject and UserAgent: UTF-8, no line break, at most 998 bytes;
+   - PlainTextBody, and the page of HtmlBody: UTF-8;
    - MessageId: RFC 5322's "<left@right>": printable ASCII, left of
      atext and single dots (as an address's local part), right the same
      or a domain literal in brackets, the whole at most 986 bytes, which
@@ -48,7 +52,10 @@ type message
      page;
    - each img src of the page that no entry of Images names, has no
      scheme and does not start with "//": a file directive serving
-     exactly that path, which then gives the image, as a ServedFile.
+     exactly that path, which then gives the image, as a ServedFile;
+   - the text, the page, the attachments and the images: at most 18 MiB
+     together, which comes to about 25 MiB base64-encoded, a common limit
+     of servers.
 
    In the message as sent, each src that an entry of Images names, or that
    a file directive serves, points at its image, which goes with the HTML
@@ -131,12 +138,16 @@ val show_sendStatus : show sendStatus
    server and account, until it has been idle for URMAIL_TIMEOUT seconds or
    more than 8 connections are open; sends to one server and account go
    one at a time.  A send is given up after URMAIL_TIMEOUT seconds (100
-   unless set) without progress.  URMAIL_DEBUG=1 traces the sends on
-   stderr. *)
+   unless set) without progress.  The message's size is declared to a
+   server that asks (SIZE, RFC 1870), so that one with a lower limit
+   refuses it before it is sent.  A recipient given twice gets the message
+   once.  URMAIL_DEBUG=1 traces the sends on stderr. *)
 val send :
 	{
 		ServerUrl : string,   (* smtp://host:port, smtps://host:port, or
-		                         host:port, which is smtp:// *)
+		                         host:port, which is smtp://; without
+		                         credentials, which go in User and
+		                         Password (Misconfigured otherwise) *)
 		Tls : tls,
 		User : string,        (* "" for no login; Password is then not used *)
 		Password : string,

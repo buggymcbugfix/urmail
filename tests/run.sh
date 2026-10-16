@@ -213,7 +213,7 @@ normalize() {
       -e 's/^| Date: .*/| Date: <date>/' \
       -e 's/^| Message-ID: <[0-9a-f]\{24\}@/| Message-ID: <generated@/' \
       -e 's/127\.0\.0\.1:[0-9]\{1,5\}/127.0.0.1:<port>/g' \
-      -e 's/ SIZE=[0-9]*$/ SIZE=<size>/' \
+      -e 's/ SIZE=[0-9]*/ SIZE=<size>/g' \
       "$1"
 }
 

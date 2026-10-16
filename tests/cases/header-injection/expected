@@ -1,3 +1,3 @@
 --- check
-refused: Subject "Hello\r\nBcc: eve@example.org": Header value contains newline
+refused: Subject "Hello\r\nBcc: eve@example.org": Header value contains a line break
 --- application log

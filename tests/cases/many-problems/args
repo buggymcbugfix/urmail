@@ -1,6 +1,6 @@
 # Everything wrong at once, each problem one line naming the field and the
 # value, in the order found: a From without '@'; a To with a line break,
-# escaped; a Subject over 2000 bytes, cut; a MessageId without brackets; an
+# escaped; a Subject over 998 bytes, cut; a MessageId without brackets; an
 # attachment with a slash in its name and a space in its MIME type; an img
 # src no file directive serves, and one served without a MIME type; an
 # entry of Images given twice and used by no img src.

@@ -1,3 +1,6 @@
 --- check
-ok
+refused: From "J\xFCrgen <j@example.com>": Display name is not UTF-8
+Subject "Gr\xFC\xDFe": Header value is not UTF-8
+PlainTextBody: not UTF-8
+Attachment "Gr\xFC\xDFe.txt": name is not UTF-8
 --- application log

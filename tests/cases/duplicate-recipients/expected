@@ -15,10 +15,6 @@ C: MAIL FROM:<alice@example.com>
 S: 250 ok
 C: RCPT TO:<bob@example.net>
 S: 250 ok
-C: RCPT TO:<bob@example.net>
-S: 250 ok
-C: RCPT TO:<bob@example.net>
-S: 250 ok
 C: DATA
 S: 354 go ahead
 MESSAGE:

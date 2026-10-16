@@ -1,7 +1,7 @@
 --- check
 refused: From "alice": E-mail address has no '@'
 To "bob\n@example.net": E-mail address contains a line break
-Subject "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"...: Header value too long
+Subject "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"...: Header value is longer than 998 bytes
 MessageId "nobrackets@example.com": Message-ID is not of the form <left@right>
 Image "/unused": given twice in Images
 img src "/logo.pgn": no entry of Images names it, and no file directive serves it
