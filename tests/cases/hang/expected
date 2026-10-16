@@ -1,5 +1,5 @@
 --- status
-NotSent: Timeout was reached
+Deferred: Timeout was reached
 --- server
 S: 220 fake.test ESMTP
 (client closed the connection)

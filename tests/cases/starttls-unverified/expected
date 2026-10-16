@@ -1,5 +1,5 @@
 --- status
-Failed: SSL peer certificate or SSH remote key was not OK
+Misconfigured: the server's certificate did not verify (SSL peer certificate or SSH remote key was not OK)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

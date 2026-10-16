@@ -1,5 +1,5 @@
 --- status
-NotSent: server declined for now: 454 4.7.0 temporary authentication failure (AUTH PLAIN)
+Deferred: the server declined for now: 454 4.7.0 temporary authentication failure (AUTH PLAIN)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

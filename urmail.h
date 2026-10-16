@@ -46,12 +46,30 @@ uw_UrmailFfi_message uw_UrmailFfi_lookUpImages(uw_context, uw_UrmailFfi_message)
 uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context, uw_UrmailFfi_message);
 uw_Basis_string uw_UrmailFfi_problems(uw_context, uw_UrmailFfi_message);
 
-// UrmailFfi.sendStatus, laid out as uw_UrmailFfi_tls is.
-enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_Refused, uw_UrmailFfi_NotSent, uw_UrmailFfi_MaybeSent,
-                                   uw_UrmailFfi_Failed };
+// What became of a send: UrmailFfi.reply and UrmailFfi.problem, read with
+// the functions below, and UrmailFfi.sendStatus, laid out as
+// uw_UrmailFfi_tls is.
+typedef struct send_reply *uw_UrmailFfi_reply;
+typedef struct send_problem *uw_UrmailFfi_problem;
+
+uw_Basis_int uw_UrmailFfi_replyCode(uw_context, uw_UrmailFfi_reply);
+uw_Basis_string uw_UrmailFfi_replyEnhanced(uw_context, uw_UrmailFfi_reply);
+uw_Basis_string uw_UrmailFfi_replyText(uw_context, uw_UrmailFfi_reply);
+uw_Basis_string uw_UrmailFfi_replyCommand(uw_context, uw_UrmailFfi_reply);
+uw_Basis_bool uw_UrmailFfi_problemHasReply(uw_context, uw_UrmailFfi_problem);
+uw_UrmailFfi_reply uw_UrmailFfi_problemReply(uw_context, uw_UrmailFfi_problem);
+uw_Basis_string uw_UrmailFfi_problemDetail(uw_context, uw_UrmailFfi_problem);
+
+enum uw_UrmailFfi_sendStatus_tag { uw_UrmailFfi_Sent, uw_UrmailFfi_Refused, uw_UrmailFfi_Deferred,
+                                   uw_UrmailFfi_MaybeSent, uw_UrmailFfi_Misconfigured };
 struct uw_UrmailFfi_sendStatus {
   enum uw_UrmailFfi_sendStatus_tag tag;
-  union { uw_Basis_string uw_Refused; uw_Basis_string uw_NotSent; uw_Basis_string uw_MaybeSent; uw_Basis_string uw_Failed; } data;
+  union {
+    uw_UrmailFfi_reply uw_Refused;
+    uw_UrmailFfi_problem uw_Deferred;
+    uw_UrmailFfi_problem uw_MaybeSent;
+    uw_UrmailFfi_problem uw_Misconfigured;
+  } data;
 };
 typedef struct uw_UrmailFfi_sendStatus *uw_UrmailFfi_sendStatus;
 

@@ -1,5 +1,5 @@
 --- status
-MaybeSent: connection lost after the message was sent: Failure when receiving data from the peer
+MaybeSent: the connection was lost after the whole message was sent (Failure when receiving data from the peer)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

@@ -63,23 +63,25 @@ fun record id status =
     case status of
         Urmail.Sent =>
         dml (UPDATE queue SET Status = {[Some "sent"]} WHERE Id = {[id]})
-      | Urmail.Refused why =>
-        dml (UPDATE queue SET Status = {[Some ("refused: " ^ why)]} WHERE Id = {[id]})
-      | Urmail.NotSent why =>
+      | Urmail.Refused _ =>
+        dml (UPDATE queue SET Status = {[Some (show status)]} WHERE Id = {[id]})
+      | Urmail.Deferred _ =>
         (* Declined for now, or no connection: back into the queue, where
            the next tick takes it again.  A real queue would wait longer
-           after each refusal, with a column for when to try next, rather
-           than knock every second. *)
+           after each try, with a column for when to try next, rather than
+           knock every second, and give up after a while. *)
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
       | Urmail.MaybeSent _ =>
         (* Back into the queue: sent again, with the same Message-ID. *)
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
-      | Urmail.Failed why =>
-        (* The server URL, the TLS setting or the login is wrong, which no
-           message is to blame for: back into the queue, and the log says
-           what to fix.  Until it is fixed every tick fails the same way; a
-           real queue would stop and raise an alarm instead. *)
-        debug ("urmail: message " ^ show id ^ " cannot be sent: " ^ why);
+      | Urmail.Misconfigured _ =>
+        (* The server URL, the TLS setting, the login or what the account
+           may send is wrong, which no message is to blame for: back into
+           the queue, and the log says what to fix.  Until it is fixed
+           every tick fails the same way; a real queue would stop and raise
+           an alarm instead, and not count the tries against the
+           message. *)
+        debug ("urmail: message " ^ show id ^ " cannot be sent: " ^ show status);
         dml (UPDATE queue SET Claimed = FALSE WHERE Id = {[id]})
 
 (* Step 2, around the other two, once a second. *)

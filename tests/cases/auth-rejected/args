@@ -1,6 +1,7 @@
 # The server refuses the credentials with 535, before MAIL FROM: the message
 # has no part in it, and the same call fails until the password is right, so
-# the status is Failed, with the server's words and the command they answer.
+# the status is Misconfigured, with the server's words and the command they
+# answer.
 mode=reject-auth
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=wrong)

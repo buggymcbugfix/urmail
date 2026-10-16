@@ -1,0 +1,18 @@
+--- status
+Refused: 552 5.3.4 message size exceeds fixed maximum message size (MAIL FROM:<alice@example.com>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 552 5.3.4 message size exceeds fixed maximum message size
+C: QUIT
+S: 221 bye
+--- application log

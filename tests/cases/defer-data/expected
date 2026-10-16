@@ -1,5 +1,5 @@
 --- status
-NotSent: server declined for now: 452 try again later (end of DATA)
+Deferred: the server declined for now: 452 try again later (end of DATA)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

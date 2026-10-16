@@ -2,7 +2,16 @@ type emailAddress = UrmailFfi.emailAddress
 type message = UrmailFfi.message
 
 datatype tls = datatype UrmailFfi.tls
-datatype sendStatus = datatype UrmailFfi.sendStatus
+
+type reply = {Code : int, Enhanced : option string, Text : string, Command : string}
+type problem = {Reply : option reply, Detail : string}
+
+datatype sendStatus =
+	  Sent
+	| Refused of reply
+	| Deferred of problem
+	| MaybeSent of problem
+	| Misconfigured of problem
 
 datatype attachment =
 	  Blob of {Name : string, MimeType : string, Data : blob}
@@ -68,5 +77,49 @@ fun message r =
 		| Some e => Failure (lines e)
 	end
 
+fun reply (r : UrmailFfi.reply) : reply =
+	{
+		Code = UrmailFfi.replyCode r,
+		Enhanced = UrmailFfi.replyEnhanced r,
+		Text = UrmailFfi.replyText r,
+		Command = UrmailFfi.replyCommand r
+	}
+
+fun problem (p : UrmailFfi.problem) : problem =
+	{
+		Reply = if UrmailFfi.problemHasReply p then Some (reply (UrmailFfi.problemReply p)) else None,
+		Detail = UrmailFfi.problemDetail p
+	}
+
+fun showReply (r : reply) =
+	show r.Code
+	^ (case r.Enhanced of
+	   | None => ""
+	   | Some e => " " ^ e)
+	^ (if r.Text = "" then "" else " " ^ r.Text)
+	^ " (" ^ r.Command ^ ")"
+
+fun showProblem (p : problem) =
+	case p.Reply of
+	| None => p.Detail
+	| Some r => p.Detail ^ ": " ^ showReply r
+
+val show_sendStatus =
+	mkShow
+		(fn s =>
+			case s of
+			| Sent => "Sent"
+			| Refused r => "Refused: " ^ showReply r
+			| Deferred p => "Deferred: " ^ showProblem p
+			| MaybeSent p => "MaybeSent: " ^ showProblem p
+			| Misconfigured p => "Misconfigured: " ^ showProblem p)
+
 fun send r =
-	UrmailFfi.send r.ServerUrl r.Tls r.User r.Password r.Message
+	s <- UrmailFfi.send r.ServerUrl r.Tls r.User r.Password r.Message;
+	return
+		(case s of
+		| UrmailFfi.Sent => Sent
+		| UrmailFfi.Refused x => Refused (reply x)
+		| UrmailFfi.Deferred x => Deferred (problem x)
+		| UrmailFfi.MaybeSent x => MaybeSent (problem x)
+		| UrmailFfi.Misconfigured x => Misconfigured (problem x))

@@ -1,0 +1,22 @@
+--- status
+Refused: 550 5.1.1 The account that you tried to reach does not exist. Please check the address for typos or unnecessary spaces. (RCPT TO:<bob@example.net>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 550-5.1.1 The account that you tried to reach does not exist.
+S: 550-5.1.1 Please check the address for typos
+S: 550 5.1.1 or unnecessary spaces.
+C: QUIT
+S: 221 bye
+--- application log

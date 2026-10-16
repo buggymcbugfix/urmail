@@ -5,8 +5,13 @@ An Ur/Web library that sends a message through an SMTP server, over
 libcurl.  `urmail.urs` is the interface: `message` checks a message, its
 addresses (`local@domain` or `Name <local@domain>`), header values,
 attachments and images, and gives it or every problem with it, one line
-each; `send`, from an io task, sends it and says what became of it (sent,
-refused, not sent, maybe sent, or failed before any of it was tried).
+each; `send`, from an io task, sends it and says what became of it, and
+so what to do next: `Sent`; `Refused`, for good; `Deferred`, worth another
+try later; `MaybeSent`, when the connection broke after the whole message
+went out; or `Misconfigured`, when the server URL, the TLS setting, the
+login or the sender is what needs changing.  Where a reply of the server's
+decided it, the status has the reply's code, enhanced status code, text,
+and the command it answered.
 Sending is not something a transaction can undo, so there is no sending
 from one: a request handler queues the message in a table, and a periodic
 task in io claims it and checks it in one transaction, sends, and records

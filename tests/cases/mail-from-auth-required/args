@@ -1,8 +1,6 @@
 # No user name, so no login, and the server refuses MAIL FROM with 530, as a
-# submission server does.  The status is Refused, "sending it again will not
-# help", although the message is fine and goes once the login is configured:
-# the 5xx comes after MAIL FROM, and the library takes a 5xx from there on
-# as a refusal of the message.
+# submission server does.  The message is fine and goes once the login is
+# configured: Misconfigured, by the 530.
 mode=auth-required
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n')

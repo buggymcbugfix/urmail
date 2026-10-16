@@ -1,5 +1,5 @@
 --- status
-NotSent: Login denied
+Misconfigured: the server offers no login that libcurl can make with a password (Login denied)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

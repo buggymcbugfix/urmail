@@ -1,5 +1,5 @@
 --- status
-Refused: server refused: 554 rejected (end of DATA)
+Refused: 554 rejected (end of DATA)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

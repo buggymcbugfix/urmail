@@ -1,5 +1,5 @@
 --- status
-NotSent: Failure when receiving data from the peer
+Deferred: Failure when receiving data from the peer
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

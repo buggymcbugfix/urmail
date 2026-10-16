@@ -1,0 +1,8 @@
+# The server closes the connection after the first 64 KiB of an 8 MB
+# message, while the client is still sending it.  The end of the data never
+# reached the server, so it cannot have taken the message: Deferred, not
+# MaybeSent.
+mode=drop-during-data
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Big Body=$'See attached\n' User=alice Password=secret
+      Attach1='big|big.txt|text/plain|8000000')

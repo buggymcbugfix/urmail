@@ -52,6 +52,16 @@ The modes:
                       refuses a client that has not logged in
     starttls-drop     STARTTLS is accepted with 220, and the connection is
                       closed instead of the TLS handshake
+    reject-mail       MAIL FROM is refused with 550 5.7.1, as a server
+                      refuses a sender that the account may not use
+    reject-mail-size  MAIL FROM is refused with 552 5.3.4: the message is
+                      too big
+    rcpt-needs-login  every RCPT TO is refused with 550 5.7.0, as a server
+                      refuses to relay for a client that has not logged in
+    reject-rcpt-long  every RCPT TO is refused with a reply of three lines
+                      and an enhanced status code, as large providers send
+    drop-during-data  the connection is closed after the first 64 KiB of the
+                      message, while the client is still sending it
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is
 offered unless the mode says otherwise; anything else is refused.
@@ -72,7 +82,12 @@ MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data"
          "drop-after-data", "drop-before-data", "hang", "no-starttls", "reject-auth",
          "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
          "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
-         "starttls-drop")
+         "starttls-drop", "reject-mail", "reject-mail-size", "rcpt-needs-login",
+         "reject-rcpt-long", "drop-during-data")
+
+# How much of the message drop-during-data reads before it closes the
+# connection.
+DROP_AFTER = 64 * 1024
 
 
 def escape(data):
@@ -160,6 +175,18 @@ class Session:
         exts.append("250 AUTH XOAUTH2" if self.mode == "auth-xoauth2" else "250 AUTH PLAIN")
         return "\n".join(exts)
 
+    def handshake(self):
+        """TLS, server side, and whether it was set up.  A client that gives
+        up during the handshake may do it by an alert or by closing the
+        connection, which may arrive as either, so the two read the same."""
+        try:
+            self.conn = self.sslctx.wrap_socket(self.conn, server_side=True)
+        except (ssl.SSLError, ConnectionError):
+            self.log("(TLS handshake failed)")
+            return False
+        self.log("(TLS established)")
+        return True
+
     def run(self):
         self.reply("554 5.3.2 no service here" if self.mode == "reject-greeting" else "220 fake.test ESMTP")
         if self.mode == "hang":
@@ -213,16 +240,20 @@ class Session:
                 if self.mode == "starttls-drop":
                     self.log("(server closed the connection)")
                     return
-                self.conn = self.sslctx.wrap_socket(self.conn, server_side=True)
+                if not self.handshake():
+                    return
                 self.buf = b""
-                self.log("(TLS established)")
             elif verb == "AUTH":
                 self.reply("504 mechanism not supported")
             elif verb == "MAIL":
                 if self.mode == "drop-on-reuse" and self.messages >= 1:
                     self.log("(server closed the connection)")
                     return
-                self.reply("530 5.7.0 authentication required" if self.mode == "auth-required" else "250 ok")
+                self.reply("530 5.7.0 authentication required" if self.mode == "auth-required"
+                           else "550 5.7.1 sender address not owned by user" if self.mode == "reject-mail"
+                           else "552 5.3.4 message size exceeds fixed maximum message size"
+                           if self.mode == "reject-mail-size"
+                           else "250 ok")
             elif verb == "RCPT":
                 if self.mode == "reject-rcpt":
                     self.reply("550 no such user")
@@ -230,6 +261,12 @@ class Session:
                     self.reply("450 try again later")
                 elif self.mode == "reject-bad-rcpt" and "bad" in cmd:
                     self.reply("550 no such user")
+                elif self.mode == "rcpt-needs-login":
+                    self.reply("550 5.7.0 authentication required to relay")
+                elif self.mode == "reject-rcpt-long":
+                    self.reply("550-5.1.1 The account that you tried to reach does not exist.\n"
+                               "550-5.1.1 Please check the address for typos\n"
+                               "550 5.1.1 or unnecessary spaces.")
                 else:
                     self.reply("250 ok")
             elif verb == "DATA":
@@ -237,6 +274,15 @@ class Session:
                     self.log("(server closed the connection)")
                     return
                 self.reply("354 go ahead")
+                if self.mode == "drop-during-data":
+                    got = len(self.buf)
+                    while got < DROP_AFTER:
+                        chunk = self.conn.recv(65536)
+                        if not chunk:
+                            break
+                        got += len(chunk)
+                    self.log("(server closed the connection during the message)")
+                    return
                 body = self.read_message()
                 if body is None:
                     self.log("(client closed the connection)")
@@ -347,14 +393,10 @@ def main():
         conn.settimeout(args.timeout)
         session = Session(conn, args.mode, sslctx, transcript)
         try:
-            if args.mode == "implicit-tls":
-                session.conn = sslctx.wrap_socket(conn, server_side=True)
-                transcript.append("(TLS established)")
-            session.run()
-        except ssl.SSLError:
-            transcript.append("(TLS error)")
-        except ConnectionError:
-            # A reset reads like an orderly close: the client went away.
+            if args.mode != "implicit-tls" or session.handshake():
+                session.run()
+        except (ssl.SSLError, ConnectionError):
+            # An alert, a reset or an orderly close: the client went away.
             transcript.append("(client closed the connection)")
         except socket.timeout:
             transcript.append("(timed out waiting for the client)")

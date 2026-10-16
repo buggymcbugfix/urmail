@@ -11,7 +11,8 @@
 #
 #   args        shell lines: mode=... (smtpd.py's mode), tls=... (none,
 #               starttls, starttls-ca, starttls-noverify: what the client is
-#               told), form=(...) (the fields of the request, curl -d style;
+#               told; starttls-badca names a CA file that does not exist),
+#               form=(...) (the fields of the request, curl -d style;
 #               Attach1..3 spell attachments and images, and Srcs lists the
 #               img srcs of the HTML version, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
@@ -303,6 +304,7 @@ run_case() {
   case $tls in
     none|starttls|starttls-noverify) ca= ;;
     starttls-ca) ca=$out/cert.pem ;;
+    starttls-badca) ca=$out/no-such-ca.pem; tls=starttls-ca ;;
     *) cannot_run "unknown tls setting $tls"; return ;;
   esac
   case $url in

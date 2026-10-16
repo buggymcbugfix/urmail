@@ -52,32 +52,24 @@ datatype tls =
                              certificate; never for production, since anyone
                              on the path can then read the credentials. *)
 
-(* What became of a message.  Where the server answered, the string is its
-   reply and the command it answered; otherwise what libcurl said. *)
+(* What became of a message, as Urmail.sendStatus has it (see there),
+   with the reply and the problem as values to read, which Urmail makes
+   records of.  [problemReply] is for a problem that [problemHasReply]. *)
+type reply
+val replyCode : reply -> int
+val replyEnhanced : reply -> option string
+val replyText : reply -> string
+val replyCommand : reply -> string
+type problem
+val problemHasReply : problem -> bool
+val problemReply : problem -> reply
+val problemDetail : problem -> string
 datatype sendStatus =
     Sent
-  | Refused of string    (* The server refused the message for good: a 5xx
-                            reply to MAIL FROM, RCPT TO or after DATA (no
-                            such recipient, message rejected).  Sending it
-                            again will not help. *)
-  | NotSent of string    (* Not delivered, for now: the server declined with
-                            a 4xx reply (mailbox busy, storage short,
-                            greylisting, a temporary failure of the login),
-                            or the connection failed before any of the
-                            message was uploaded.  Worth another try
-                            later. *)
-  | MaybeSent of string  (* The connection was lost after the upload began
-                            and the server's verdict never arrived: the
-                            server may or may not have accepted the message.
-                            Sending again may deliver it twice. *)
-  | Failed of string     (* Nothing was tried against the message: the
-                            server URL is not an smtp:// or smtps:// one,
-                            TLS could not be set up or the certificate did
-                            not verify, or the server refused the session
-                            with a 5xx before MAIL FROM (to the greeting,
-                            EHLO, STARTTLS or the login).  The same call
-                            fails the same way until the configuration is
-                            changed; the message itself is fine. *)
+  | Refused of reply
+  | Deferred of problem
+  | MaybeSent of problem
+  | Misconfigured of problem
 
 (* Send now.  The message must be finished and without problems, as one
    that Urmail.message returned is; any other is a fatal error. *)

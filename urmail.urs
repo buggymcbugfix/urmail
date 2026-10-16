@@ -79,7 +79,50 @@ val message :
 	result message
 
 datatype tls = datatype UrmailFfi.tls
-datatype sendStatus = datatype UrmailFfi.sendStatus
+
+(* A reply of the server's: its code; its enhanced status code (RFC 3463),
+   "5.1.1" say, if it gave one; its text, the lines of a reply of several
+   joined by blanks; and the command it answered, as sent, with the
+   credentials left out, or "greeting" or "end of DATA". *)
+type reply = {Code : int, Enhanced : option string, Text : string, Command : string}
+
+(* What went wrong: the reply that decided it, if one did, and what else is
+   known, or what libcurl said. *)
+type problem = {Reply : option reply, Detail : string}
+
+(* What became of a message, and so what to do with it next. *)
+datatype sendStatus =
+	  Sent
+	| Refused of reply
+	  (* The server refused this message for good: a 5xx to RCPT TO (no
+	     such mailbox), to DATA or after the message (its content), or a
+	     552 to MAIL FROM (too big).  Sending it again will not help; the
+	     codes say why.  A message has one status: when one recipient is
+	     refused, nothing is sent, and the reply names that recipient. *)
+	| Deferred of problem
+	  (* Not delivered, for now: a 4xx reply (greylisting, a mailbox busy,
+	     a login that failed for now), or the connection failed, timed out
+	     or broke before the whole message went out.  Worth another try,
+	     later. *)
+	| MaybeSent of problem
+	  (* The connection was lost after the whole message went out, and the
+	     server's verdict never came: it may have been delivered or not.
+	     Sending it again may deliver it twice, which receivers can tell by
+	     the Message-ID when it is the same. *)
+	| Misconfigured of problem
+	  (* Nothing is wrong with the message; the server URL, the TLS
+	     setting, the login or what the account may send is.  The URL is
+	     not smtp:// or smtps://; the certificate did not verify or the CA
+	     file cannot be used; STARTTLS is not offered; the server refused
+	     the session (a 5xx before MAIL FROM: the greeting, EHLO, STARTTLS
+	     or the login) or the sender (a 5xx to MAIL FROM but 552); it
+	     wants a login (530, or 5.7.0 to MAIL FROM or RCPT TO); or it
+	     offers no login that libcurl can make with a password.  Every send
+	     fails the same way until that is changed. *)
+
+(* One line: the status, then the detail, the reply's codes and text, and
+   the command it answered in parentheses. *)
+val show_sendStatus : show sendStatus
 
 (* Send a message through an SMTP server, now, and say what became of it.
    In io, since a send cannot be undone: an io task builds and claims the

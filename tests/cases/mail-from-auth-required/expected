@@ -1,5 +1,5 @@
 --- status
-Refused: server refused: 530 5.7.0 authentication required (MAIL FROM:<alice@example.com>)
+Misconfigured: the server wants a login: 530 5.7.0 authentication required (MAIL FROM:<alice@example.com>)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

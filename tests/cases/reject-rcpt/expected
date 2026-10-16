@@ -1,5 +1,5 @@
 --- status
-Refused: server refused: 550 no such user (RCPT TO:<nobody@example.net>)
+Refused: 550 no such user (RCPT TO:<nobody@example.net>)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

@@ -1,5 +1,5 @@
 --- status
-Failed: Requested SSL level failed
+Misconfigured: the server does not offer STARTTLS (Requested SSL level failed)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

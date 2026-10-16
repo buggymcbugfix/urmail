@@ -1,5 +1,5 @@
 --- status
-Failed: SSL connect error
+Deferred: SSL connect error
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

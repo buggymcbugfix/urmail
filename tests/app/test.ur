@@ -36,13 +36,30 @@ fun opt (s : string) : option string = if s = "" then None else Some s
      file|NAME|PATH                     an attachment, a ServedFile; an empty
                                         NAME is none
      image-blob|URL|NAME|TYPE|DATA      an entry of Images, for URL
-     image-file|URL|NAME|PATH           the same, a ServedFile *)
+     image-file|URL|NAME|PATH           the same, a ServedFile
+     big|NAME|TYPE|SIZE                 an attachment, a Blob of SIZE bytes
+                                        of filler, for the cases about big
+                                        messages *)
 fun fields (s : string) : list string =
     case String.split s #"|" of
         None => s :: []
       | Some (a, rest) => a :: fields rest
 
 datatype spec = Attachment of Urmail.attachment | Image of url * Urmail.attachment
+
+(* n bytes of filler, by halves, so that it takes a logarithmic number of
+   concatenations. *)
+val filler64 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/"
+
+fun filler (n : int) : string =
+    if n <= 64 then
+        String.substring filler64 {Start = 0, Len = if n < 0 then 0 else n}
+    else
+        let
+            val half = filler (n / 2)
+        in
+            half ^ half ^ (if n % 2 = 1 then "=" else "")
+        end
 
 fun spec (s : string) : spec =
     case fields s of
@@ -54,6 +71,8 @@ fun spec (s : string) : spec =
         Image (bless u, Urmail.Blob {Name = name, MimeType = typ, Data = textBlob data})
       | "image-file" :: u :: name :: path :: [] =>
         Image (bless u, Urmail.ServedFile {Name = opt name, ServedPath = path})
+      | "big" :: name :: typ :: size :: [] =>
+        Attachment (Urmail.Blob {Name = name, MimeType = typ, Data = textBlob (filler (readError size))})
       | _ => error <xml>Bad attachment spec: {[s]}</xml>
 
 (* The message of the fields: the HTML version, when Html is given, has
@@ -108,13 +127,6 @@ fun ffiMessage [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, Body, User
             |> given UrmailFfi.userAgent r.UserAgent
     end
 
-fun showStatus s =
-    case s of
-        Urmail.Sent => "Sent"
-      | Urmail.Refused m => "Refused: " ^ m
-      | Urmail.NotSent m => "NotSent: " ^ m
-      | Urmail.MaybeSent m => "MaybeSent: " ^ m
-      | Urmail.Failed m => "Failed: " ^ m
 
 fun enqueue (viaFfi : bool) (r : fields) =
     id <- nextval jobIds;
@@ -142,14 +154,16 @@ task periodic 1 = fn () =>
                        if j.Ffi then
                            runTransaction (record j.Id "sending a message made with UrmailFfi");
                            s <- UrmailFfi.send j.Server (tls j) j.User j.Password (ffiMessage j);
-                           runTransaction (record j.Id ("UrmailFfi.send gave " ^ showStatus s))
+                           runTransaction (record j.Id ("UrmailFfi.send gave " ^ (case s of
+                                                                                     UrmailFfi.Sent => "Sent"
+                                                                                   | _ => "something else")))
                        else
                            s <- (case message j of
                                      Failure e => return ("Invalid: " ^ show e)
                                    | Success m =>
                                      s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
                                                        Password = j.Password, Message = m};
-                                     return (showStatus s));
+                                     return (show s));
                            runTransaction (record j.Id s))
                    jobs;
     return ()

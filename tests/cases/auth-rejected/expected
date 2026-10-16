@@ -1,5 +1,5 @@
 --- status
-Failed: login refused: 535 5.7.8 authentication failed (AUTH PLAIN)
+Misconfigured: the server refused the login: 535 5.7.8 authentication failed (AUTH PLAIN)
 --- server
 S: 220 fake.test ESMTP
 C: EHLO <host>

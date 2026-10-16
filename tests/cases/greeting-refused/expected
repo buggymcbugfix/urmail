@@ -1,5 +1,5 @@
 --- status
-Failed: server refused the session: 554 5.3.2 no service here (greeting)
+Misconfigured: the server refused the session: 554 5.3.2 no service here (greeting)
 --- server
 S: 554 5.3.2 no service here
 (client closed the connection)

@@ -1739,12 +1739,23 @@ static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m) {
    a time on each, closed when idle for long or when too many are open, and
    an outcome that says what is known. ---- */
 
-typedef enum { SENT, REFUSED, NOT_SENT, MAYBE_SENT, NOT_TRIED } outcome_kind;  // NOT_TRIED is Failed (urweb.h has FAILED)
+// What became of a send, as UrmailFfi.sendStatus has it.  (urweb.h has
+// FAILED, so that is not a name for one.)
+typedef enum { SENT, REFUSED, DEFERRED, MAYBE_SENT, MISCONFIGURED } outcome_kind;
+
+// A reply of the server's (RFC 5321, section 4.2): its code, its enhanced
+// status code (RFC 3463), its text, and the command it answered.
+typedef struct {
+  int code;           // 0: no reply
+  char enhanced[16];  // "" when there is none
+  char text[1024];    // after the codes, the lines joined by blanks, cut to fit
+  char command[320];  // as sent, credentials left out, or "greeting" or "end of DATA"
+} reply;
 
 typedef struct {
   outcome_kind kind;
-  char message[1024];  // unless SENT: the server's reply and the command it
-                       // answered, or what libcurl said when there was none
+  reply reply;        // the reply that decided the kind, if one did
+  char detail[1024];  // what else is known, or what libcurl said
 } outcome;
 
 // Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
@@ -1760,14 +1771,12 @@ static int debugging(void) {
 #define DBG(...) do { if (debugging()) { fprintf(stderr, "urmail: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
 // What the exchange with the server came to, kept by trace_callback for the
-// status: the last command sent and the last reply line, and whether MAIL
-// FROM went out, which is where the server stops judging the session (the
-// greeting, EHLO, STARTTLS, the login) and starts judging the message.
+// status: the last command sent, the last reply, and the reply being read.
 typedef struct {
   char command[320];  // without the line end; "" before the first
-  char reply[320];    // the last line of the last reply, without the line end
+  reply last;         // the last complete reply
+  reply partial;      // the reply being read, until its last line
   int in_auth;        // the AUTH exchange is on: what goes out is credentials
-  int mail_from;      // MAIL FROM has been sent
 } trace;
 
 // One line of libcurl's, without its line end, truncated to what fits.
@@ -1780,6 +1789,73 @@ static void trace_line(char *out, size_t n, const char *data, size_t size) {
   out[size] = 0;
 }
 
+static int digits(const char *s, int n) {
+  int i;
+
+  for (i = 0; i < n; ++i)
+    if (!isdigit((unsigned char)s[i]))
+      return 0;
+  return 1;
+}
+
+// The enhanced status code at the start of a reply's text, if it has one,
+// copied to out (n bytes), and the text after it.  RFC 3463 has it as
+// class.subject.detail: the class is the first digit of the reply's code,
+// the others are of 1 to 3 digits each.
+static const char *enhanced_code(const char *s, char class, char *out, size_t n) {
+  const char *p = s;
+  size_t k;
+  int part;
+
+  if (p[0] != class || p[1] != '.')
+    return s;
+  p += 2;
+  for (part = 0; part < 2; ++part) {  // the subject, then the detail
+    for (k = 0; isdigit((unsigned char)p[k]); ++k);
+    if (k < 1 || k > 3)
+      return s;
+    p += k;
+    if (part == 0) {
+      if (*p != '.')
+        return s;
+      ++p;
+    }
+  }
+  if ((*p && *p != ' ') || (size_t)(p - s) >= n)
+    return s;
+  memcpy(out, s, p - s);
+  out[p - s] = 0;
+  return *p ? p + 1 : p;
+}
+
+// One line of a reply: "ddd-text" for each but the last, "ddd text" or
+// "ddd" for the last (RFC 5321, section 4.2.1).  The texts are joined,
+// each without the codes.
+static void reply_line(trace *t, const char *line) {
+  reply *r = &t->partial;
+  const char *text;
+  size_t len, room;
+
+  if (!digits(line, 3) || (line[3] && line[3] != ' ' && line[3] != '-'))
+    return;
+  if (!r->code) {
+    r->code = atoi(line);
+    r->enhanced[0] = 0;
+    r->text[0] = 0;
+    snprintf(r->command, sizeof r->command, "%s", t->command[0] ? t->command : "greeting");
+  }
+  text = enhanced_code(line[3] ? line + 4 : line + 3, line[0], r->enhanced, sizeof r->enhanced);
+  len = strlen(r->text);
+  room = sizeof r->text - 1 - len;
+  if (len && room && *text)
+    r->text[len++] = ' ', --room;
+  snprintf(r->text + len, room + 1, "%s", text);
+  if (line[3] != '-') {
+    t->last = *r;
+    r->code = 0;
+  }
+}
+
 // libcurl's debug callback, always installed: it records the exchange for
 // the status, and prints it as libcurl's own trace would when URMAIL_DEBUG
 // is set, except that the credentials are not printed.  The AUTH exchange
@@ -1788,6 +1864,7 @@ static void trace_line(char *out, size_t n, const char *data, size_t size) {
 // message itself is never printed.
 static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t size, void *userp) {
   trace *t = userp;
+  char line[1024];
   (void)curl;
 
   switch (type) {
@@ -1808,19 +1885,20 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
         strcpy(ir, " [credentials]");
       t->in_auth = 1;
     }
-    if (!strncmp(t->command, "MAIL FROM", 9))
-      t->mail_from = 1;
     if (debugging())
       fprintf(stderr, "> %s\n", t->command);
     break;
   case CURLINFO_HEADER_IN:
-    trace_line(t->reply, sizeof t->reply, data, size);
-    if (t->in_auth && strncmp(t->reply, "334", 3))
-      t->in_auth = 0;
-    if (!strncmp(t->reply, "354", 3) && !strcmp(t->command, "DATA"))
-      strcpy(t->command, "end of DATA");  // what the next reply answers
+    trace_line(line, sizeof line, data, size);
+    reply_line(t, line);
+    if (!t->partial.code) {  // a reply is complete
+      if (t->in_auth && t->last.code != 334)
+        t->in_auth = 0;
+      if (t->last.code == 354 && !strcmp(t->command, "DATA"))
+        strcpy(t->command, "end of DATA");  // what the next reply answers
+    }
     if (debugging())
-      fprintf(stderr, "< %s\n", t->reply);
+      fprintf(stderr, "< %s\n", line);
     break;
   default:
     break;
@@ -1828,22 +1906,81 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
   return 0;
 }
 
-// Whether libcurl's result says the configuration is wrong: the URL, or the
-// TLS it asks for.  The same send fails the same way until someone changes
-// it, so it is not worth retrying.
-static int configuration_error(CURLcode res) {
+// The part of the session a reply answered.
+typedef enum { SESSION, MAIL, RECIPIENT, DATA } stage;
+
+static stage stage_of(const reply *r) {
+  if (!strncmp(r->command, "MAIL FROM", 9))
+    return MAIL;
+  if (!strncmp(r->command, "RCPT TO", 7))
+    return RECIPIENT;
+  if (!strcmp(r->command, "DATA") || !strcmp(r->command, "end of DATA"))
+    return DATA;
+  return SESSION;  // the greeting, EHLO, HELO, STARTTLS, AUTH
+}
+
+static void decided(outcome *o, outcome_kind kind, const char *detail, const char *libcurl) {
+  o->kind = kind;
+  if (libcurl)
+    snprintf(o->detail, sizeof o->detail, "%s (%s)", detail, libcurl);
+  else
+    snprintf(o->detail, sizeof o->detail, "%s", detail);
+}
+
+// What a reply of 400 or more means for the message.  A 4xx is for now.  A
+// 5xx before MAIL FROM is about the session, and a 5xx to MAIL FROM about
+// the sender, which belongs to the account, unless it is 552, a message
+// too big (RFC 1870); both are the configuration's to fix.  So is a 530, or
+// a 5.7.0 to MAIL FROM or RCPT TO: a login is needed (RFC 4954, section 6).
+// A 5xx to RCPT TO, to DATA or after the message is about the message.
+static void judge_reply(const reply *r, outcome *o) {
+  stage s = stage_of(r);
+
+  o->reply = *r;
+  if (r->code == 530 || (r->code >= 500 && (s == MAIL || s == RECIPIENT) && !strcmp(r->enhanced, "5.7.0")))
+    decided(o, MISCONFIGURED, "the server wants a login", NULL);
+  else if (r->code >= 500 && s == SESSION)
+    decided(o, MISCONFIGURED, !strncmp(r->command, "AUTH", 4) ? "the server refused the login"
+                              : !strcmp(r->command, "STARTTLS") ? "the server refused TLS"
+                              : "the server refused the session", NULL);
+  else if (r->code >= 500 && s == MAIL && r->code != 552)
+    decided(o, MISCONFIGURED, "the server refused the sender", NULL);
+  else if (r->code >= 500)
+    decided(o, REFUSED, "", NULL);
+  else
+    decided(o, DEFERRED, "the server declined for now", NULL);
+}
+
+// What a failure without a reply to decide it means: libcurl's result, and
+// whether the whole message had gone to libcurl.  Only after that may the
+// server have the end of the data, and so the message.
+static void judge_error(CURLcode res, int all_sent, outcome *o) {
+  const char *why = curl_easy_strerror(res);
+
+  o->reply.code = 0;
   switch (res) {
   case CURLE_URL_MALFORMAT:
   case CURLE_UNSUPPORTED_PROTOCOL:
-  case CURLE_SSL_CONNECT_ERROR:
+    decided(o, MISCONFIGURED, "the server URL is not an smtp:// or smtps:// one", why);
+    break;
   case CURLE_PEER_FAILED_VERIFICATION:
+    decided(o, MISCONFIGURED, "the server's certificate did not verify", why);
+    break;
   case CURLE_SSL_CACERT_BADFILE:
-  case CURLE_SSL_CERTPROBLEM:
-  case CURLE_SSL_CIPHER:
+    decided(o, MISCONFIGURED, "the CA file cannot be used", why);
+    break;
   case CURLE_USE_SSL_FAILED:
-    return 1;
+    decided(o, MISCONFIGURED, "the server does not offer STARTTLS", why);
+    break;
+  case CURLE_LOGIN_DENIED:
+    decided(o, MISCONFIGURED, "the server offers no login that libcurl can make with a password", why);
+    break;
   default:
-    return 0;
+    if (all_sent)
+      decided(o, MAYBE_SENT, "the connection was lost after the whole message was sent", why);
+    else
+      decided(o, DEFERRED, why, NULL);
+    break;
   }
 }
 
@@ -2053,28 +2190,11 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   return res;
 }
 
-// Send the job's message.  What can be told afterwards:
-//
-//   - CURLE_OK: sent.
-//   - The server answered with a code of 500 or more after MAIL FROM: it
-//     refused the message (a recipient, the content) for good; sending it
-//     again will not help.
-//   - The server answered with a code of 500 or more before MAIL FROM, to
-//     the greeting, EHLO, STARTTLS or the login: it refused the session,
-//     which the message has no part in; the configuration is what needs
-//     changing.  The same when the URL is wrong or TLS cannot be set up:
-//     failed, and not worth trying again as it is.
-//   - The server answered with a code of 400 to 499: it declined for now (a
-//     mailbox busy, storage short, greylisting); not sent, try again later.
-//   - The connection broke before any of the message was uploaded: not sent.
-//     When the connection was a reused one, the server may simply have
-//     dropped it while idle, and one more attempt is made, on a fresh one.
-//   - The connection broke after the message was uploaded, in full or in part,
-//     and the server's verdict never arrived: maybe sent.  No retry here; that
-//     is the caller's decision, since it may mean a duplicate.
-//
-// Where the server answered, the status quotes its reply and the command it
-// answered; otherwise what libcurl said.
+// Send the job's message, and say what became of it: SENT, or what
+// judge_reply makes of the server's reply when one decided it, or
+// judge_error of libcurl's result.  A reused connection that breaks before
+// any of the message went out may have been closed by the server while
+// idle, so one more attempt is made then, on a fresh connection.
 static void deliver(job *j, outcome *o) {
   smtp_conn *c = get_connection(j);
   struct curl_slist *recipients = NULL;
@@ -2093,14 +2213,13 @@ static void deliver(job *j, outcome *o) {
   if (!c->curl) {
     pthread_mutex_unlock(&c->lock);
     curl_slist_free_all(recipients);
-    o->kind = NOT_SENT;
-    snprintf(o->message, sizeof o->message, "cannot create a libcurl handle");
+    o->reply.code = 0;
+    decided(o, DEFERRED, "cannot create a libcurl handle", NULL);
     return;
   }
 
   for (;;) {
-    long code = 0, connects = 0;
-    curl_off_t uploaded = 0;
+    long connects = 0;
 
     up.content = j->message;
     up.length = j->length;
@@ -2111,55 +2230,25 @@ static void deliver(job *j, outcome *o) {
     if (res == CURLE_OK) {
       DBG("sent");
       o->kind = SENT;
-      o->message[0] = 0;
+      o->reply.code = 0;
+      o->detail[0] = 0;
       break;
     }
 
-    curl_easy_getinfo(c->curl, CURLINFO_RESPONSE_CODE, &code);
-    curl_easy_getinfo(c->curl, CURLINFO_SIZE_UPLOAD_T, &uploaded);
     curl_easy_getinfo(c->curl, CURLINFO_NUM_CONNECTS, &connects);
-    DBG("failed: %s (SMTP %ld, uploaded %lld bytes, %ld new connections)",
-        curl_easy_strerror(res), code, (long long)uploaded, connects);
+    DBG("failed: %s (last reply %d, %zu of %zu bytes not sent, %ld new connections)",
+        curl_easy_strerror(res), t.last.code, up.length, j->length, connects);
 
-    if (code >= 400 && t.reply[0]) {
-      const char *answered = t.command[0] ? t.command : "greeting";
-      if (code >= 500 && !t.mail_from) {
-        o->kind = NOT_TRIED;
-        snprintf(o->message, sizeof o->message, "%s: %s (%s)",
-                 strncmp(t.command, "AUTH", 4) ? "server refused the session" : "login refused",
-                 t.reply, answered);
-      } else if (code >= 500) {
-        o->kind = REFUSED;
-        snprintf(o->message, sizeof o->message, "server refused: %s (%s)", t.reply, answered);
-      } else {
-        o->kind = NOT_SENT;
-        snprintf(o->message, sizeof o->message, "server declined for now: %s (%s)", t.reply, answered);
-      }
+    if (t.last.code >= 400) {
+      judge_reply(&t.last, o);
       break;
     }
-
-    if (configuration_error(res)) {
-      o->kind = NOT_TRIED;
-      snprintf(o->message, sizeof o->message, "%s", curl_easy_strerror(res));
-      break;
-    }
-
-    if (uploaded > 0) {
-      o->kind = MAYBE_SENT;
-      snprintf(o->message, sizeof o->message, "connection lost after the message was sent: %s",
-               curl_easy_strerror(res));
-      break;
-    }
-
-    if (tries == 1 && connects == 0
+    if (tries == 1 && connects == 0 && up.length == j->length
         && (res == CURLE_SEND_ERROR || res == CURLE_RECV_ERROR || res == CURLE_GOT_NOTHING)) {
-      // A reused connection that the server had closed: try once more, fresh.
       fresh = 1;
       continue;
     }
-
-    o->kind = NOT_SENT;
-    snprintf(o->message, sizeof o->message, "%s", curl_easy_strerror(res));
+    judge_error(res, up.length == 0, o);
     break;
   }
 
@@ -2171,6 +2260,71 @@ static void deliver(job *j, outcome *o) {
   c->last_used = time(NULL);
   pthread_mutex_unlock(&c->lock);
   curl_slist_free_all(recipients);
+}
+
+// UrmailFfi.reply and UrmailFfi.problem, which Urmail makes records of.
+struct send_reply {
+  uw_Basis_int code;
+  uw_Basis_string enhanced, text, command;
+};
+
+struct send_problem {
+  uw_UrmailFfi_reply reply;  // or NULL
+  uw_Basis_string detail;
+};
+
+static uw_UrmailFfi_reply ffi_reply(uw_context ctx, const reply *r) {
+  uw_UrmailFfi_reply x = uw_malloc(ctx, sizeof *x);
+
+  x->code = r->code;
+  x->enhanced = r->enhanced[0] ? uw_strdup(ctx, r->enhanced) : NULL;
+  x->text = uw_strdup(ctx, r->text);
+  x->command = uw_strdup(ctx, r->command);
+  return x;
+}
+
+static uw_UrmailFfi_problem ffi_problem(uw_context ctx, const outcome *o) {
+  uw_UrmailFfi_problem p = uw_malloc(ctx, sizeof *p);
+
+  p->reply = o->reply.code ? ffi_reply(ctx, &o->reply) : NULL;
+  p->detail = uw_strdup(ctx, o->detail);
+  return p;
+}
+
+uw_Basis_int uw_UrmailFfi_replyCode(uw_context ctx, uw_UrmailFfi_reply r) {
+  (void)ctx;
+  return r->code;
+}
+
+uw_Basis_string uw_UrmailFfi_replyEnhanced(uw_context ctx, uw_UrmailFfi_reply r) {
+  (void)ctx;
+  return r->enhanced;
+}
+
+uw_Basis_string uw_UrmailFfi_replyText(uw_context ctx, uw_UrmailFfi_reply r) {
+  (void)ctx;
+  return r->text;
+}
+
+uw_Basis_string uw_UrmailFfi_replyCommand(uw_context ctx, uw_UrmailFfi_reply r) {
+  (void)ctx;
+  return r->command;
+}
+
+uw_Basis_bool uw_UrmailFfi_problemHasReply(uw_context ctx, uw_UrmailFfi_problem p) {
+  (void)ctx;
+  return p->reply ? uw_Basis_True : uw_Basis_False;
+}
+
+uw_UrmailFfi_reply uw_UrmailFfi_problemReply(uw_context ctx, uw_UrmailFfi_problem p) {
+  if (!p->reply)
+    uw_error(ctx, FATAL, "urmail: problemReply of a problem without a reply");
+  return p->reply;
+}
+
+uw_Basis_string uw_UrmailFfi_problemDetail(uw_context ctx, uw_UrmailFfi_problem p) {
+  (void)ctx;
+  return p->detail;
 }
 
 // UrmailFfi.send, in io: assemble the message, send it now, and say what
@@ -2222,19 +2376,19 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
     break;
   case REFUSED:
     r->tag = uw_UrmailFfi_Refused;
-    r->data.uw_Refused = uw_strdup(ctx, o.message);
+    r->data.uw_Refused = ffi_reply(ctx, &o.reply);
     break;
-  case NOT_SENT:
-    r->tag = uw_UrmailFfi_NotSent;
-    r->data.uw_NotSent = uw_strdup(ctx, o.message);
+  case DEFERRED:
+    r->tag = uw_UrmailFfi_Deferred;
+    r->data.uw_Deferred = ffi_problem(ctx, &o);
     break;
   case MAYBE_SENT:
     r->tag = uw_UrmailFfi_MaybeSent;
-    r->data.uw_MaybeSent = uw_strdup(ctx, o.message);
+    r->data.uw_MaybeSent = ffi_problem(ctx, &o);
     break;
-  case NOT_TRIED:
-    r->tag = uw_UrmailFfi_Failed;
-    r->data.uw_Failed = uw_strdup(ctx, o.message);
+  case MISCONFIGURED:
+    r->tag = uw_UrmailFfi_Misconfigured;
+    r->data.uw_Misconfigured = ffi_problem(ctx, &o);
     break;
   }
   return r;

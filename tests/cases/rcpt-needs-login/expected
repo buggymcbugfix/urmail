@@ -1,0 +1,16 @@
+--- status
+Misconfigured: the server wants a login: 550 5.7.0 authentication required to relay (RCPT TO:<bob@example.net>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 550 5.7.0 authentication required to relay
+C: QUIT
+S: 221 bye
+--- application log
