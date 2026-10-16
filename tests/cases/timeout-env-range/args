@@ -1,5 +1,5 @@
 # URMAIL_TIMEOUT=0 is a number but not one of the seconds allowed (1 to
-# 86400): one line on stderr, and the default is used.
+# 3600): one line on stderr, and the default is used.
 mode=accept
 tls=none
 app_env=(URMAIL_TIMEOUT=0)
