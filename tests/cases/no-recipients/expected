@@ -1,5 +1,5 @@
 --- status
-Refused: No recipients specified for e-mail message
+Invalid: To, Cc and Bcc: no recipient
 --- server
 (no client connected)
 --- application log

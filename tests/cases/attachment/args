@@ -3,4 +3,4 @@
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Notes Body=$'See attached\n' User=alice Password=secret
-      Attach1=$'blob|notes.txt||text/plain|Line one of the notes.\nLine two, a bit longer than the first.\n')
+      Attach1=$'blob|notes.txt|text/plain|Line one of the notes.\nLine two, a bit longer than the first.\n')

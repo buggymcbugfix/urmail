@@ -1,6 +1,7 @@
 #include "config.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <errno.h>
@@ -186,13 +187,12 @@ static size_t addresses_in_order(struct address_list *l, uw_UrmailFfi_emailAddre
   return n;
 }
 
-/* ---- The text of a header (Subject, User-Agent) and a Message-ID, parsed
-   as the addresses are: never failing, carrying what is wrong. ---- */
+/* ---- The checks of the parts of a message.  Each returns what is wrong,
+   or NULL. ---- */
 
 // A header value may be anything but a line break; long or non-ASCII values
 // are encoded and folded when the message is assembled (RFC 2047 and 5322).
 // The limit is generous but there has to be one: it bounds the buffers.
-// The checks return what is wrong, or NULL.
 static const char *header(uw_Basis_string s) {
   if (strlen(s) > 2000)
     return "Header value too long";
@@ -202,30 +202,6 @@ static const char *header(uw_Basis_string s) {
       return "Header value contains newline";
 
   return NULL;
-}
-
-struct header_text {
-  uw_Basis_string text;
-  const char *error;
-};
-
-typedef struct header_text *uw_UrmailFfi_headerText;
-
-uw_UrmailFfi_headerText uw_UrmailFfi_parseHeaderText(uw_context ctx, uw_Basis_string s) {
-  uw_UrmailFfi_headerText t = uw_malloc(ctx, sizeof *t);
-
-  t->text = uw_strdup(ctx, s);
-  t->error = header(s);
-  return t;
-}
-
-uw_Basis_string uw_UrmailFfi_headerTextProblem(uw_context ctx, uw_UrmailFfi_headerText t) {
-  return t->error ? uw_strdup(ctx, (char *)t->error) : NULL;
-}
-
-uw_Basis_string uw_UrmailFfi_headerTextString(uw_context ctx, uw_UrmailFfi_headerText t) {
-  (void)ctx;
-  return t->text;
 }
 
 static const char *message_id(uw_Basis_string s) {
@@ -242,122 +218,14 @@ static const char *message_id(uw_Basis_string s) {
   return NULL;
 }
 
-struct message_id {
-  uw_Basis_string text;
-  const char *error;
-};
-
-typedef struct message_id *uw_UrmailFfi_messageId;
-
-uw_UrmailFfi_messageId uw_UrmailFfi_parseMessageId(uw_context ctx, uw_Basis_string s) {
-  uw_UrmailFfi_messageId m = uw_malloc(ctx, sizeof *m);
-
-  m->text = uw_strdup(ctx, s);
-  m->error = message_id(s);
-  return m;
-}
-
-uw_Basis_string uw_UrmailFfi_messageIdProblem(uw_context ctx, uw_UrmailFfi_messageId m) {
-  return m->error ? uw_strdup(ctx, (char *)m->error) : NULL;
-}
-
-uw_Basis_string uw_UrmailFfi_messageIdString(uw_context ctx, uw_UrmailFfi_messageId m) {
-  (void)ctx;
-  return m->text;
-}
-
-/* ---- The headers of a message, built from the parsed parts by
-   Urmail.send. ---- */
-
-struct headers {
-  uw_UrmailFfi_emailAddress from;
-  struct address_list *to, *cc, *bcc;
-  uw_Basis_string subject, user_agent, message_id;
-  // What is wrong with the message, if anything: the first problem a part
-  // carried.  The builders never fail; problem (below) reports it.
-  const char *error;
-};
-
-typedef struct headers *uw_UrmailFfi_headers;
-
-uw_UrmailFfi_headers uw_UrmailFfi_empty = NULL;
-
-// A copy of the headers to add to, with the first problem kept.
-static uw_UrmailFfi_headers extend(uw_context ctx, uw_UrmailFfi_headers h, const char *error) {
-  uw_UrmailFfi_headers h2 = uw_malloc(ctx, sizeof(struct headers));
-
-  if (h)
-    *h2 = *h;
-  else
-    memset(h2, 0, sizeof(*h2));
-
-  if (error && !h2->error)
-    h2->error = error;
-
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_from(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
-  h2->from = a;
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_to(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
-  h2->to = cons_address(ctx, a, h2->to);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_cc(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
-  h2->cc = cons_address(ctx, a, h2->cc);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_bcc(uw_context ctx, uw_UrmailFfi_emailAddress a, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, a->error);
-  h2->bcc = cons_address(ctx, a, h2->bcc);
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_subject(uw_context ctx, uw_UrmailFfi_headerText t, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, t->error);
-  h2->subject = t->text;
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_user_agent(uw_context ctx, uw_UrmailFfi_headerText t, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, t->error);
-  h2->user_agent = t->text;
-  return h2;
-}
-
-uw_UrmailFfi_headers uw_UrmailFfi_message_id(uw_context ctx, uw_UrmailFfi_messageId m, uw_UrmailFfi_headers h) {
-  uw_UrmailFfi_headers h2 = extend(ctx, h, m->error);
-  h2->message_id = m->text;
-  return h2;
-}
-
-/* ---- Attachments: built one at a time and checked, like the headers; a
-   list of them goes to send. ---- */
-
-struct attachment {
-  uw_Basis_string ascii_name;  // the filename= every client reads
-  uw_Basis_string utf8_name;   // the filename*= beside it, or NULL
-  uw_Basis_string type;        // type/subtype
-  uw_Basis_blob data;
-  int is_inline;               // referred to from the HTML part by its Content-ID
-  char content_id[24];         // for an inline part: hex@urmail, without the brackets
-  const char *error;           // the first problem a check found, or NULL
-};
-
-// The name limits keep a Content-Disposition line under the 998 bytes SMTP
+// The name limit keeps a Content-Disposition line under the 998 bytes SMTP
 // allows without RFC 2231 continuations: 255 bytes percent-encoded is 765.
 #define NAME_MAX_BYTES 255
 
-// What is wrong with a name as a filename= parameter, or NULL.
-static const char *ascii_name(uw_Basis_string s) {
+// The name of an attachment or an image, which a client saves the file as:
+// any byte but a control character, and no '/' or '\', which would name a
+// directory.  A name that is not ASCII is sent as an RFC 2231 filename*.
+static const char *part_name(uw_Basis_string s) {
   const char *p;
 
   if (!*s)
@@ -365,27 +233,10 @@ static const char *ascii_name(uw_Basis_string s) {
   if (strlen(s) > NAME_MAX_BYTES)
     return "name is longer than 255 bytes";
   for (p = s; *p; ++p) {
-    if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7E)
-      return "name is not printable ASCII";
+    if ((unsigned char)*p < 0x20 || *p == 0x7F)
+      return "name contains a control character";
     if (*p == '/' || *p == '\\')
       return "name contains '/' or '\\'";
-  }
-  return NULL;
-}
-
-// The same for the UTF-8 name, which any byte but a control character may be in.
-static const char *utf8_name(uw_Basis_string s) {
-  const char *p;
-
-  if (!*s)
-    return "UTF-8 name is empty";
-  if (strlen(s) > NAME_MAX_BYTES)
-    return "UTF-8 name is longer than 255 bytes";
-  for (p = s; *p; ++p) {
-    if ((unsigned char)*p < 0x20 || *p == 0x7F)
-      return "UTF-8 name contains a control character";
-    if (*p == '/' || *p == '\\')
-      return "UTF-8 name contains '/' or '\\'";
   }
   return NULL;
 }
@@ -408,92 +259,419 @@ static const char *mime_type(uw_Basis_string s) {
   return NULL;
 }
 
-uw_UrmailFfi_attachment uw_UrmailFfi_attach(uw_context ctx, uw_Basis_string ascii, uw_Basis_string utf8,
-                                            uw_Basis_string type, uw_Basis_blob data) {
-  uw_UrmailFfi_attachment a = uw_malloc(ctx, sizeof(struct attachment));
-  const char *error;
+/* ---- A message, built up one field at a time by Urmail.message.  The
+   builders never fail: what is wrong is kept, one line for each problem,
+   naming the field and the value given, and Urmail.message reports all of
+   them.  Each builder returns a new message and leaves the one it was given
+   as it was, as a pure function must; the lists are shared. ---- */
 
-  a->ascii_name = uw_strdup(ctx, ascii);
-  a->utf8_name = utf8 ? uw_strdup(ctx, utf8) : NULL;
-  a->type = uw_strdup(ctx, type);
-  a->data = data;
-  a->is_inline = 0;
-  a->content_id[0] = 0;
-  if (!(error = ascii_name(ascii)) && !(utf8 && (error = utf8_name(utf8))))
-    error = mime_type(type);
-  a->error = error;
+struct problem {
+  const char *line;
+  struct problem *next;
+};
+
+// An attachment or an image, checked.
+struct part {
+  uw_Basis_string name;  // what the recipient sees, as given
+  uw_Basis_string type;  // type/subtype
+  uw_Basis_blob data;
+  char content_id[24];   // hex@urmail: what the HTML refers to an image by
+};
+
+struct part_list {
+  struct part *part;
+  struct part_list *next;
+};
+
+// An entry of Images: the url of the img src it stands for, and the image,
+// or NULL when the entry has a problem (which is kept).
+struct image_entry {
+  uw_Basis_string url;
+  struct part *part;
+  struct image_entry *next;
+};
+
+struct message {
+  uw_UrmailFfi_emailAddress from;
+  struct address_list *to, *cc, *bcc;
+  uw_Basis_string subject, user_agent, message_id, text;
+  uw_Basis_string page;           // the HTML version as given, or NULL
+  struct image_entry *entries;    // Images, newest first
+  struct part_list *attachments;  // newest first
+  struct problem *problems;       // newest first
+  // What lookUpImages (below) made of the page: the HTML as sent, its img
+  // srcs pointing at the images, and the images, each once, newest first.
+  uw_Basis_string html;
+  struct part_list *images;
+  int finished;  // by Urmail.message
+};
+
+typedef struct message *uw_UrmailFfi_message;
+
+uw_UrmailFfi_message uw_UrmailFfi_start = NULL;
+
+static uw_UrmailFfi_message copy(uw_context ctx, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = uw_malloc(ctx, sizeof *m2);
+
+  if (m)
+    *m2 = *m;
+  else
+    memset(m2, 0, sizeof *m2);
+  return m2;
+}
+
+// A value as a problem shows it: in quotes, with quotes, backslashes and
+// control characters escaped, so that the line stays one line and shows
+// where the value ends; cut after 60 characters of UTF-8, with "..." after
+// it then.  A character takes at most 4 bytes, escaped or not, but nothing
+// says the value is UTF-8, and a run of continuation bytes starts no
+// character, so the bytes are bounded too.
+#define SHOWN_CHARACTERS 60
+#define SHOWN_BYTES (4 * SHOWN_CHARACTERS)
+
+static char *quoted_value(uw_context ctx, const char *s) {
+  char *out = uw_malloc(ctx, 1 + SHOWN_BYTES + sizeof "\"..."), *o = out;
+  int characters = 0;
+
+  *o++ = '"';
+  for (; *s; ++s) {
+    unsigned char c = *s;
+    if (((c & 0xC0) != 0x80 && ++characters > SHOWN_CHARACTERS) || o + 4 > out + 1 + SHOWN_BYTES) {
+      strcpy(o, "\"...");
+      return out;
+    }
+    if (c == '"' || c == '\\') {
+      *o++ = '\\';
+      *o++ = c;
+    } else if (c == '\n') {
+      *o++ = '\\';
+      *o++ = 'n';
+    } else if (c == '\r') {
+      *o++ = '\\';
+      *o++ = 'r';
+    } else if (c == '\t') {
+      *o++ = '\\';
+      *o++ = 't';
+    } else if (c < 0x20 || c == 0x7F) {
+      sprintf(o, "\\x%02X", c);
+      o += 4;
+    } else
+      *o++ = c;
+  }
+  *o++ = '"';
+  *o = 0;
+  return out;
+}
+
+// `format` with its one %s replaced by `value`, quoted.
+static const char *with_value(uw_context ctx, const char *format, const char *value) {
+  const char *v = quoted_value(ctx, value);
+  char *s = uw_malloc(ctx, strlen(format) + strlen(v) + 1);
+
+  sprintf(s, format, v);
+  return s;
+}
+
+// Keep a problem: FIELD VALUE: WHAT, or FIELD: WHAT when there is no value.
+static void add_problem(uw_context ctx, uw_UrmailFfi_message m, const char *field,
+                        const char *value, const char *what) {
+  struct problem *p = uw_malloc(ctx, sizeof *p);
+  const char *v = value ? quoted_value(ctx, value) : "";
+  char *line = uw_malloc(ctx, strlen(field) + 1 + strlen(v) + 2 + strlen(what) + 1);
+
+  sprintf(line, "%s%s%s: %s", field, value ? " " : "", v, what);
+  p->line = line;
+  p->next = m->problems;
+  m->problems = p;
+}
+
+static uw_UrmailFfi_emailAddress address_of(uw_context ctx, uw_UrmailFfi_message m, const char *field,
+                                            uw_Basis_string s) {
+  uw_UrmailFfi_emailAddress a = uw_UrmailFfi_parseAddress(ctx, s);
+
+  if (a->error)
+    add_problem(ctx, m, field, s, a->error);
   return a;
 }
 
-uw_Basis_string uw_UrmailFfi_attachmentProblem(uw_context ctx, uw_UrmailFfi_attachment a) {
-  return a->error ? uw_strdup(ctx, (char *)a->error) : NULL;
+uw_UrmailFfi_message uw_UrmailFfi_from(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->from = address_of(ctx, m2, "From", s);
+  return m2;
 }
 
-uw_UrmailFfi_attachment uw_UrmailFfi_refuse(uw_context ctx, uw_Basis_string loc, uw_Basis_string what) {
-  uw_error(ctx, FATAL, "%s: %s", uw_Basis_htmlifyString(ctx, loc), uw_Basis_htmlifyString(ctx, what));
+uw_UrmailFfi_message uw_UrmailFfi_to(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->to = cons_address(ctx, address_of(ctx, m2, "To", s), m2->to);
+  return m2;
 }
 
-// An inline part's Content-ID: a function of the part (FNV-1a over its name,
-// type and bytes), so that `inline` is pure and the cid: URL it hands out is
-// the one assemble() writes.
-static void content_id(uw_UrmailFfi_attachment a) {
+uw_UrmailFfi_message uw_UrmailFfi_cc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->cc = cons_address(ctx, address_of(ctx, m2, "Cc", s), m2->cc);
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->bcc = cons_address(ctx, address_of(ctx, m2, "Bcc", s), m2->bcc);
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_checkRecipients(uw_context ctx, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  if (!m2->to && !m2->cc && !m2->bcc)
+    add_problem(ctx, m2, "To, Cc and Bcc", NULL, "no recipient");
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+  const char *e = header(s);
+
+  if (e)
+    add_problem(ctx, m2, "Subject", s, e);
+  m2->subject = s;
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_userAgent(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+  const char *e = header(s);
+
+  if (e)
+    add_problem(ctx, m2, "UserAgent", s, e);
+  m2->user_agent = s;
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+  const char *e = message_id(s);
+
+  if (e)
+    add_problem(ctx, m2, "MessageId", s, e);
+  m2->message_id = s;
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_text(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->text = s;
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_html(uw_context ctx, uw_Basis_string page, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->page = page;
+  return m2;
+}
+
+// The Content-ID of an image: a function of the part (FNV-1a over its name,
+// type and bytes), so that the same image given twice, or found at two
+// paths, is sent once.
+static void content_id(struct part *p) {
   unsigned long long h = 14695981039346656037ULL;
-  const unsigned char *p;
+  const unsigned char *c;
   size_t i;
 
-  for (p = (const unsigned char *)a->ascii_name; ; ++p) {
-    h = (h ^ *p) * 1099511628211ULL;
-    if (!*p) break;
+  for (c = (const unsigned char *)p->name; ; ++c) {
+    h = (h ^ *c) * 1099511628211ULL;
+    if (!*c) break;
   }
-  for (p = (const unsigned char *)a->type; ; ++p) {
-    h = (h ^ *p) * 1099511628211ULL;
-    if (!*p) break;
+  for (c = (const unsigned char *)p->type; ; ++c) {
+    h = (h ^ *c) * 1099511628211ULL;
+    if (!*c) break;
   }
-  for (i = 0, p = (const unsigned char *)a->data.data; i < a->data.size; ++i, ++p)
-    h = (h ^ *p) * 1099511628211ULL;
-  snprintf(a->content_id, sizeof a->content_id, "%016llx@urmail", h);
+  for (i = 0, c = (const unsigned char *)p->data.data; i < p->data.size; ++i, ++c)
+    h = (h ^ *c) * 1099511628211ULL;
+  snprintf(p->content_id, sizeof p->content_id, "%016llx@urmail", h);
 }
 
-uw_UrmailFfi_attachment uw_UrmailFfi_inline(uw_context ctx, uw_UrmailFfi_attachment a) {
-  uw_UrmailFfi_attachment a2 = uw_malloc(ctx, sizeof(struct attachment));
+static struct part *new_part(uw_context ctx, uw_Basis_string name, uw_Basis_string type, uw_Basis_blob data) {
+  struct part *p = uw_malloc(ctx, sizeof *p);
 
-  *a2 = *a;
-  a2->is_inline = 1;
-  content_id(a2);
-  return a2;
+  p->name = name;
+  p->type = type;
+  p->data = data;
+  content_id(p);
+  return p;
 }
 
-uw_Basis_string uw_UrmailFfi_cid(uw_context ctx, uw_UrmailFfi_attachment a) {
-  uw_Basis_string url;
+static struct part_list *cons_part(uw_context ctx, struct part *p, struct part_list *l) {
+  struct part_list *cell = uw_malloc(ctx, sizeof *cell);
 
-  if (!a->is_inline)
-    uw_error(ctx, FATAL, "urmail: cid of an attachment that is not inline");
-  url = uw_malloc(ctx, 4 + strlen(a->content_id) + 1);
-  sprintf(url, "cid:%s", a->content_id);
-  return url;
+  cell->part = p;
+  cell->next = l;
+  return cell;
 }
 
-// The list, newest first; send reads it backwards.
-struct attachments {
-  uw_UrmailFfi_attachment a;
-  struct attachments *next;
-};
+// A Blob, checked, or NULL with its problems kept under FIELD VALUE.
+static struct part *blob_part(uw_context ctx, uw_UrmailFfi_message m, const char *field, const char *value,
+                              uw_Basis_string name, uw_Basis_string type, uw_Basis_blob data) {
+  const char *e;
+  int ok = 1;
 
-uw_UrmailFfi_attachments uw_UrmailFfi_noAttachments = NULL;
+  if ((e = part_name(name))) {
+    add_problem(ctx, m, field, value, e);
+    ok = 0;
+  }
+  if ((e = mime_type(type))) {
+    add_problem(ctx, m, field, value, e);
+    ok = 0;
+  } else if (!uw_Basis_checkMime(ctx, type)) {
+    add_problem(ctx, m, field, value, with_value(ctx, "MIME type %s is not allowed by the project file", type));
+    ok = 0;
+  }
+  return ok ? new_part(ctx, name, type, data) : NULL;
+}
 
-uw_UrmailFfi_attachments uw_UrmailFfi_addAttachment(uw_context ctx, uw_UrmailFfi_attachment a,
-                                                    uw_UrmailFfi_attachments l) {
-  uw_UrmailFfi_attachments l2 = uw_malloc(ctx, sizeof(struct attachments));
+// A ServedFile, checked, the same way.  Its bytes and its MIME type are
+// those of the file directive serving `path`; `name`, when NULL, is the
+// path's last segment, as Basis names a served file.
+static struct part *served_part(uw_context ctx, uw_UrmailFfi_message m, const char *field, const char *value,
+                                uw_Basis_string name, uw_Basis_string path) {
+  uw_Basis_file *f = uw_Basis_checkServedFile(ctx, path);
+  const char *e;
+  int ok = 1;
 
-  l2->a = a;
-  l2->next = l;
-  return l2;
+  if (name && (e = part_name(name))) {
+    add_problem(ctx, m, field, value, e);
+    ok = 0;
+  }
+  if (!f) {
+    add_problem(ctx, m, field, value, with_value(ctx, "no file directive serves %s", path));
+    return NULL;
+  }
+  if (!*f->type) {
+    add_problem(ctx, m, field, value,
+                with_value(ctx, "no MIME type is known for %s; give one in its file directive", path));
+    ok = 0;
+  }
+  if (!name) {
+    name = f->name;
+    if (!name) {
+      add_problem(ctx, m, field, value,
+                  with_value(ctx, "%s has no last segment to name the file by; give a Name", path));
+      ok = 0;
+    } else if ((e = part_name(name))) {
+      add_problem(ctx, m, field, value, e);
+      ok = 0;
+    }
+  }
+  return ok ? new_part(ctx, name, f->type, f->data) : NULL;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_attachBlob(uw_context ctx, uw_Basis_string name, uw_Basis_string type,
+                                             uw_Basis_blob data, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+  struct part *p = blob_part(ctx, m2, "Attachment", name, name, type, data);
+
+  if (p)
+    m2->attachments = cons_part(ctx, p, m2->attachments);
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_attachServedFile(uw_context ctx, uw_Basis_string name, uw_Basis_string path,
+                                                   uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+  struct part *p = served_part(ctx, m2, "Attachment", name ? name : path, name, path);
+
+  if (p)
+    m2->attachments = cons_part(ctx, p, m2->attachments);
+  return m2;
+}
+
+// An entry of Images, kept unless there is one for the url already, which
+// is a problem: the first one stands.
+static void add_entry(uw_context ctx, uw_UrmailFfi_message m, uw_Basis_string url, struct part *p) {
+  struct image_entry *e;
+
+  for (e = m->entries; e; e = e->next)
+    if (!strcmp(e->url, url)) {
+      add_problem(ctx, m, "Image", url, "given twice in Images");
+      return;
+    }
+  e = uw_malloc(ctx, sizeof *e);
+  e->url = url;
+  e->part = p;
+  e->next = m->entries;
+  m->entries = e;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_imageBlob(uw_context ctx, uw_Basis_string url, uw_Basis_string name,
+                                            uw_Basis_string type, uw_Basis_blob data, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  add_entry(ctx, m2, url, blob_part(ctx, m2, "Image", url, name, type, data));
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_imageServedFile(uw_context ctx, uw_Basis_string url, uw_Basis_string name,
+                                                  uw_Basis_string path, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  add_entry(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path));
+  return m2;
+}
+
+static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m);
+
+// The page's img srcs looked up, after the entries of Images (rewrite_page,
+// below).
+uw_UrmailFfi_message uw_UrmailFfi_lookUpImages(uw_context ctx, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  if (m2->page)
+    rewrite_page(ctx, m2);
+  return m2;
+}
+
+// The message complete, for send to tell one from Urmail.message.
+uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  m2->finished = 1;
+  return m2;
+}
+
+// The problems, one line each, in the order they were found, or NULL.
+uw_Basis_string uw_UrmailFfi_problems(uw_context ctx, uw_UrmailFfi_message m) {
+  struct problem *p;
+  size_t n = 0, len = 0, i;
+  const char **lines;
+  char *s, *o;
+
+  if (!m || !m->problems)
+    return NULL;
+  for (p = m->problems; p; p = p->next) {
+    ++n;
+    len += strlen(p->line) + 1;
+  }
+  lines = uw_malloc(ctx, n * sizeof *lines);
+  for (p = m->problems, i = n; p; p = p->next)
+    lines[--i] = p->line;
+  s = o = uw_malloc(ctx, len);
+  for (i = 0; i < n; ++i) {
+    if (i)
+      *o++ = '\n';
+    strcpy(o, lines[i]);
+    o += strlen(lines[i]);
+  }
+  return s;
 }
 
 // What deliver() needs: the arguments of send, the TLS choice unpacked, and
 // the message as it goes over the wire.  Nothing here outlives the call.
 typedef struct {
-  uw_UrmailFfi_headers h;
+  uw_UrmailFfi_message m;
   const char *server, *ca, *user, *password;
   enum uw_UrmailFfi_tls_tag tls;
   const char *message;
@@ -819,26 +997,57 @@ static void buf_extended(uw_context ctx, buf *b, const char *s) {
   }
 }
 
-// One attachment as a MIME part: its headers, then the bytes in base64.  The
-// ASCII name is the filename= every client reads; the UTF-8 name, when
-// there is one, is a filename*= (RFC 2231) beside it, first, since a parser
-// that takes the first of the two is then right, and on a line of its own.
-// An inline part has the Content-ID the HTML refers to.
-static void buf_attachment(uw_context ctx, buf *b, uw_UrmailFfi_attachment a) {
-  buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, a->type); buf_str(ctx, b, "\r\n");
-  if (a->is_inline) {
-    buf_str(ctx, b, "Content-ID: <"); buf_str(ctx, b, a->content_id); buf_str(ctx, b, ">\r\n");
+// Whether a name can go into filename= as it is: ASCII.  The name has no
+// control character (part_name), so this is whether it has no byte >= 0x80.
+static int is_ascii_name(const char *s) {
+  for (; *s; ++s)
+    if ((unsigned char)*s >= 0x80)
+      return 0;
+  return 1;
+}
+
+// A name that is not ASCII, for filename= beside the filename*= that
+// carries it: '_' for each character that is not ASCII (each byte that does
+// not continue a UTF-8 sequence), so a client that does not read filename*
+// still shows the extension and the rest.
+static void buf_ascii_copy(uw_context ctx, buf *b, const char *s) {
+  buf_str(ctx, b, "\"");
+  for (; *s; ++s) {
+    unsigned char c = *s;
+    if (c >= 0x80) {
+      if ((c & 0xC0) != 0x80)
+        buf_str(ctx, b, "_");
+      continue;
+    }
+    if (c == '"' || c == '\\')
+      buf_str(ctx, b, "\\");
+    buf_append(ctx, b, s, 1);
   }
-  buf_str(ctx, b, a->is_inline ? "Content-Disposition: inline;" : "Content-Disposition: attachment;");
-  if (a->utf8_name) {
+  buf_str(ctx, b, "\"");
+}
+
+// One part as MIME has it: its headers, then the bytes in base64.  An image
+// has the Content-ID the HTML refers to.  A name that is not ASCII goes into
+// a filename*= (RFC 2231), first, since a parser that takes the first of the
+// two is then right, and on a line of its own; filename= is then an ASCII
+// copy, for the clients that read only that.
+static void buf_part(uw_context ctx, buf *b, struct part *p, int is_image) {
+  buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, p->type); buf_str(ctx, b, "\r\n");
+  if (is_image) {
+    buf_str(ctx, b, "Content-ID: <"); buf_str(ctx, b, p->content_id); buf_str(ctx, b, ">\r\n");
+  }
+  buf_str(ctx, b, is_image ? "Content-Disposition: inline;" : "Content-Disposition: attachment;");
+  if (is_ascii_name(p->name)) {
+    buf_str(ctx, b, " filename=");
+    buf_quoted(ctx, b, p->name);
+  } else {
     buf_str(ctx, b, " filename*=");
-    buf_extended(ctx, b, a->utf8_name);
-    buf_str(ctx, b, ";\r\n");
+    buf_extended(ctx, b, p->name);
+    buf_str(ctx, b, ";\r\n filename=");
+    buf_ascii_copy(ctx, b, p->name);
   }
-  buf_str(ctx, b, " filename=");
-  buf_quoted(ctx, b, a->ascii_name);
   buf_str(ctx, b, "\r\nContent-Transfer-Encoding: base64\r\n\r\n");
-  buf_base64_lines(ctx, b, (const unsigned char *)a->data.data, a->data.size);
+  buf_base64_lines(ctx, b, (const unsigned char *)p->data.data, p->data.size);
 }
 
 // The text body, or the multipart/alternative of it and the HTML document,
@@ -873,88 +1082,261 @@ static void buf_body(uw_context ctx, buf *b, uw_Basis_string body, uw_Basis_stri
   }
 }
 
-// The inline or the attached parts of the list, in the order they were
-// given: the list is newest first.
-static size_t in_order(uw_UrmailFfi_attachments l, int is_inline, uw_UrmailFfi_attachment **out) {
+// The parts of a list in the order they were given: the list is newest
+// first.
+static size_t parts_in_order(struct part_list *l, struct part ***out) {
   size_t n = 0, i;
-  uw_UrmailFfi_attachments p;
+  struct part_list *p;
 
   for (p = l; p; p = p->next)
-    if (p->a->is_inline == is_inline)
-      ++n;
+    ++n;
   *out = n ? malloc(n * sizeof **out) : NULL;
   for (p = l, i = n; p; p = p->next)
-    if (p->a->is_inline == is_inline)
-      (*out)[--i] = p->a;
+    (*out)[--i] = p->part;
   return n;
 }
 
-// Whether any part of the list is inline.
-static int has_inline(uw_UrmailFfi_attachments l) {
-  for (; l; l = l->next)
-    if (l->a->is_inline)
-      return 1;
-  return 0;
-}
-
-// Assemble the message: headers, then the body; with inline parts, a
-// multipart/related of the body and those; with attached parts, a
+// Assemble the message: headers, then the body; with images, a
+// multipart/related of the body and those; with attachments, a
 // multipart/mixed of all that and those.
-static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_headers h,
-                     uw_Basis_string body, uw_Basis_string xbody, uw_UrmailFfi_attachments attachments) {
+static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   char date[64], message_id[512];
-  uw_UrmailFfi_attachment *inlines, *attached;
-  size_t n_inline, n_attached, i;
+  struct part **images, **attached;
+  size_t n_images, n_attached, i;
 
   date_header(date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
   buf_str(ctx, b, "Date: "); buf_str(ctx, b, date); buf_str(ctx, b, "\r\n");
-  if (h->message_id)
-    buf_str(ctx, b, "Message-ID: "), buf_str(ctx, b, h->message_id), buf_str(ctx, b, "\r\n");
+  if (m->message_id)
+    buf_str(ctx, b, "Message-ID: "), buf_str(ctx, b, m->message_id), buf_str(ctx, b, "\r\n");
   else {
-    generate_message_id(h->from, message_id, sizeof message_id);
+    generate_message_id(m->from, message_id, sizeof message_id);
     buf_str(ctx, b, "Message-ID: "); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
   }
-  if (h->from) {
-    buf_str(ctx, b, "From: "); buf_address(ctx, b, h->from); buf_str(ctx, b, "\r\n");
+  buf_str(ctx, b, "From: "); buf_address(ctx, b, m->from); buf_str(ctx, b, "\r\n");
+  buf_str(ctx, b, "Subject: "); buf_text_header(ctx, b, m->subject); buf_str(ctx, b, "\r\n");
+  if (m->to) {
+    buf_str(ctx, b, "To: "); buf_address_list(ctx, b, m->to); buf_str(ctx, b, "\r\n");
   }
-  if (h->subject) {
-    buf_str(ctx, b, "Subject: "); buf_text_header(ctx, b, h->subject); buf_str(ctx, b, "\r\n");
+  if (m->cc) {
+    buf_str(ctx, b, "Cc: "); buf_address_list(ctx, b, m->cc); buf_str(ctx, b, "\r\n");
   }
-  if (h->to) {
-    buf_str(ctx, b, "To: "); buf_address_list(ctx, b, h->to); buf_str(ctx, b, "\r\n");
-  }
-  if (h->cc) {
-    buf_str(ctx, b, "Cc: "); buf_address_list(ctx, b, h->cc); buf_str(ctx, b, "\r\n");
-  }
-  if (h->user_agent) {
-    buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, h->user_agent); buf_str(ctx, b, "\r\n");
+  if (m->user_agent) {
+    buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, m->user_agent); buf_str(ctx, b, "\r\n");
   }
 
-  n_inline = in_order(attachments, 1, &inlines);
-  n_attached = in_order(attachments, 0, &attached);
+  n_images = parts_in_order(m->images, &images);
+  n_attached = parts_in_order(m->attachments, &attached);
   if (n_attached)
     buf_str(ctx, b, "Content-Type: multipart/mixed; boundary=\"" MIXED_BOUNDARY "\"\r\n\r\n"
                     "--" MIXED_BOUNDARY "\r\n");
-  if (n_inline)  // RFC 2387 wants the root's type named; with an inline part there is an HTML part
+  if (n_images)  // RFC 2387 wants the root's type named; with an image there is an HTML part
     buf_str(ctx, b, "Content-Type: multipart/related; type=\"multipart/alternative\";\r\n"
                     " boundary=\"" RELATED_BOUNDARY "\"\r\n\r\n"
                     "--" RELATED_BOUNDARY "\r\n");
-  buf_body(ctx, b, body, xbody);
-  for (i = 0; i < n_inline; ++i) {
+  buf_body(ctx, b, m->text, m->page ? m->html : NULL);
+  for (i = 0; i < n_images; ++i) {
     buf_str(ctx, b, "\r\n--" RELATED_BOUNDARY "\r\n");
-    buf_attachment(ctx, b, inlines[i]);
+    buf_part(ctx, b, images[i], 1);
   }
-  if (n_inline)
+  if (n_images)
     buf_str(ctx, b, "\r\n--" RELATED_BOUNDARY "--");
   for (i = 0; i < n_attached; ++i) {
     buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "\r\n");
-    buf_attachment(ctx, b, attached[i]);
+    buf_part(ctx, b, attached[i], 0);
   }
   if (n_attached)
     buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "--");
-  free(inlines);
+  free(images);
   free(attached);
+}
+
+/* ---- The page's img srcs.  A page is the string Ur/Web renders, which is
+   regular: text has '<' and '&' escaped, so every '<' in text starts a tag;
+   attribute values are in double quotes, with '"' and '&' escaped, but may
+   hold '<' and '>'; and a script's text is not markup.  So the tags are
+   read with their quotes, and script elements are skipped. ---- */
+
+// Whether s begins with a URI scheme (RFC 3986): a letter, then letters,
+// digits, '+', '-' or '.', then ':'.
+static int has_scheme(const char *s) {
+  if (!isalpha((unsigned char)*s))
+    return 0;
+  for (++s; isalnum((unsigned char)*s) || *s == '+' || *s == '-' || *s == '.'; ++s);
+  return *s == ':';
+}
+
+// Whether s[0..n) is `lit`, ignoring case.
+static int name_is(const char *s, size_t n, const char *lit) {
+  return strlen(lit) == n && !strncasecmp(s, lit, n);
+}
+
+// An attribute value s[0..n) as the runtime writes it, unescaped.
+static char *unattrify(uw_context ctx, const char *s, size_t n) {
+  char *out = uw_malloc(ctx, n + 1), *o = out;
+  size_t i = 0;
+
+  while (i < n) {
+    if (n - i >= 5 && !strncmp(s + i, "&amp;", 5)) {
+      *o++ = '&';
+      i += 5;
+    } else if (n - i >= 6 && !strncmp(s + i, "&quot;", 6)) {
+      *o++ = '"';
+      i += 6;
+    } else
+      *o++ = s[i++];
+  }
+  *o = 0;
+  return out;
+}
+
+// The image an img src stands for, or NULL when there is none or it has a
+// problem (which is kept): the entry of Images for exactly that url;
+// failing that, for a src with no scheme that does not start with "//", the
+// file a file directive serves at exactly that path, named by its last
+// segment.  Other srcs are left as they are.  `used` marks the entries used,
+// `entries` being them in the order given.
+static struct part *image_for(uw_context ctx, uw_UrmailFfi_message m, const char *src,
+                              struct image_entry **entries, size_t n_entries, char *used) {
+  uw_Basis_file *f;
+  const char *e;
+  size_t i;
+  int ok = 1;
+
+  for (i = 0; i < n_entries; ++i)
+    if (!strcmp(entries[i]->url, src)) {
+      used[i] = 1;
+      return entries[i]->part;
+    }
+  if (has_scheme(src) || (src[0] == '/' && src[1] == '/'))
+    return NULL;
+  if (!(f = uw_Basis_checkServedFile(ctx, (uw_Basis_string)src))) {
+    add_problem(ctx, m, "img src", src, "no entry of Images names it, and no file directive serves it");
+    return NULL;
+  }
+  if (!*f->type) {
+    add_problem(ctx, m, "img src", src, "no MIME type is known for it; give one in its file directive");
+    ok = 0;
+  }
+  if (!f->name) {
+    add_problem(ctx, m, "img src", src, "it has no last segment to name the image by");
+    ok = 0;
+  } else if ((e = part_name(f->name))) {
+    add_problem(ctx, m, "img src", src, e);
+    ok = 0;
+  }
+  return ok ? new_part(ctx, f->name, f->type, f->data) : NULL;
+}
+
+// An image of the message, once: the one already there when it is the same
+// (its Content-ID being a function of the part), else this one.
+static struct part *add_image(uw_context ctx, uw_UrmailFfi_message m, struct part *p) {
+  struct part_list *l;
+
+  for (l = m->images; l; l = l->next)
+    if (!strcmp(l->part->content_id, p->content_id))
+      return l->part;
+  m->images = cons_part(ctx, p, m->images);
+  return p;
+}
+
+// The first "</script", ignoring case, or NULL.
+static const char *script_end(const char *s) {
+  for (; (s = strchr(s, '<')); ++s)
+    if (!strncasecmp(s, "</script", 8))
+      return s;
+  return NULL;
+}
+
+// The HTML as sent: the page, with each img src that stands for an image
+// pointing at it by its cid: url.  Then the entries of Images that no img
+// src used, each a problem.
+static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m) {
+  const char *s = m->page, *last = s, *p = s;
+  struct image_entry *e, **entries;
+  size_t n_entries = 0, i;
+  char *used;
+  buf out = {NULL, 0, 0};
+
+  for (e = m->entries; e; e = e->next)
+    ++n_entries;
+  entries = malloc((n_entries ? n_entries : 1) * sizeof *entries);
+  used = calloc(n_entries ? n_entries : 1, 1);
+  for (e = m->entries, i = n_entries; e; e = e->next)
+    entries[--i] = e;
+
+  while ((p = strchr(p, '<'))) {
+    const char *name;
+    size_t name_len;
+    int closing, is_img;
+
+    ++p;
+    closing = *p == '/';
+    if (closing)
+      ++p;
+    for (name = p; isalnum((unsigned char)*p); ++p);
+    name_len = p - name;
+    is_img = !closing && name_is(name, name_len, "img");
+
+    // The attributes, up to the '>' that is not in a value.
+    while (*p && *p != '>') {
+      const char *an, *vs, *ve;
+      size_t an_len;
+
+      if (isspace((unsigned char)*p) || *p == '/') {
+        ++p;
+        continue;
+      }
+      for (an = p; *p && !isspace((unsigned char)*p) && *p != '=' && *p != '>' && *p != '/'; ++p);
+      an_len = p - an;
+      while (isspace((unsigned char)*p))
+        ++p;
+      if (*p != '=') {
+        if (!an_len)
+          ++p;  // a stray character: on
+        continue;
+      }
+      ++p;
+      while (isspace((unsigned char)*p))
+        ++p;
+      if (*p == '"' || *p == '\'') {
+        char quote = *p++;
+        vs = p;
+        ve = strchr(p, quote);
+        if (!ve)
+          ve = p + strlen(p);
+        p = *ve ? ve + 1 : ve;
+      } else {
+        for (vs = p; *p && !isspace((unsigned char)*p) && *p != '>'; ++p);
+        ve = p;
+      }
+      if (is_img && name_is(an, an_len, "src")) {
+        struct part *image = image_for(ctx, m, unattrify(ctx, vs, ve - vs), entries, n_entries, used);
+        if (image) {
+          image = add_image(ctx, m, image);
+          buf_append(ctx, &out, last, vs - last);
+          buf_str(ctx, &out, "cid:");
+          buf_str(ctx, &out, image->content_id);
+          last = ve;
+        }
+      }
+    }
+    if (*p == '>')
+      ++p;
+    if (!closing && name_is(name, name_len, "script")) {
+      const char *end = script_end(p);
+      p = end ? end : p + strlen(p);
+    }
+  }
+  buf_str(ctx, &out, last);
+  m->html = uw_strdup(ctx, out.s);
+  free(out.s);
+
+  for (i = 0; i < n_entries; ++i)
+    if (!used[i])
+      add_problem(ctx, m, "Image", entries[i]->url, "no img src of the page uses it");
+  free(entries);
+  free(used);
 }
 
 /* ---- Delivery: a persistent connection per server and account, one send at
@@ -1265,7 +1647,7 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
     break;
   }
 
-  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, j->h->from->addr);
+  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, j->m->from->addr);
   curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
   curl_easy_setopt(curl, CURLOPT_READFUNCTION, do_upload);
   curl_easy_setopt(curl, CURLOPT_READDATA, up);
@@ -1305,9 +1687,9 @@ static void deliver(job *j, outcome *o) {
   CURLcode res;
   int fresh = 0, tries = 0;
 
-  recipients = add_recipients(recipients, j->h->to);
-  recipients = add_recipients(recipients, j->h->cc);
-  recipients = add_recipients(recipients, j->h->bcc);
+  recipients = add_recipients(recipients, j->m->to);
+  recipients = add_recipients(recipients, j->m->cc);
+  recipients = add_recipients(recipients, j->m->bcc);
 
   pthread_mutex_lock(&c->lock);
   if (!c->curl)
@@ -1395,63 +1777,22 @@ static void deliver(job *j, outcome *o) {
   curl_slist_free_all(recipients);
 }
 
-// What is wrong with the message, or NULL: the problems the builders found,
-// and what only the whole message shows.
-static const char *check(uw_UrmailFfi_headers h) {
-  if (!h || !h->from)
-    return "No From address set for e-mail message";
-  if (h->error)
-    return h->error;
-  if (!h->to && !h->cc && !h->bcc)
-    return "No recipients specified for e-mail message";
-  return NULL;
-}
-
-// UrmailFfi.problem: what check() says, for Urmail.send to report as a
-// Refused.  An `option string` is the string itself, or NULL for None.
-uw_Basis_string uw_UrmailFfi_problem(uw_context ctx, uw_UrmailFfi_headers h) {
-  const char *wrong = check(h);
-
-  return wrong ? uw_strdup(ctx, wrong) : NULL;
-}
-
-// Headers with a problem Urmail.send did not ask about, or an attachment
-// that Urmail.Attachment did not pass: not something the Ur side can
-// produce, so an error of the caller.
-static void refuse(uw_context ctx, uw_UrmailFfi_headers h, uw_UrmailFfi_attachments attachments) {
-  const char *wrong = check(h);
-  uw_UrmailFfi_attachments p;
-
-  if (wrong)
-    uw_error(ctx, FATAL, "urmail: headers not checked: %s", wrong);
-  for (p = attachments; p; p = p->next)
-    if (p->a->error)
-      uw_error(ctx, FATAL, "urmail: attachment not from Urmail.Attachment: %s", p->a->error);
-}
-
 // UrmailFfi.send, in io: assemble the message, send it now, and say what
-// became of it.
+// became of it.  A message that is not what Urmail.message returned is not
+// something the Ur side can produce, so an error of the caller.
 uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server, uw_UrmailFfi_tls tls,
                                           uw_Basis_string user, uw_Basis_string password,
-                                          uw_UrmailFfi_headers h, uw_Basis_string body, uw_Basis_string xbody,
-                                          uw_UrmailFfi_attachments attachments) {
+                                          uw_UrmailFfi_message m) {
   buf b = {NULL, 0, 0};
   job j;
   outcome o;
   uw_UrmailFfi_sendStatus r = uw_malloc(ctx, sizeof(struct uw_UrmailFfi_sendStatus));
 
-  refuse(ctx, h, attachments);
-  if (!xbody && has_inline(attachments)) {
-    // Nothing would refer to the part: a mistake of the caller, reported
-    // as the status rather than as an error, which would leave the message
-    // claimed and unsent; Refused, since sending it again will not help.
-    r->tag = uw_UrmailFfi_Refused;
-    r->data.uw_Refused = uw_strdup(ctx, "inline attachment without an HTML part");
-    return r;
-  }
-  assemble(ctx, &b, h, body, xbody, attachments);
+  if (!m || !m->finished || m->problems || (m->page && !m->html))
+    uw_error(ctx, FATAL, "urmail: a message not from Urmail.message");
+  assemble(ctx, &b, m);
 
-  j.h = h;
+  j.m = m;
   j.server = server;
   j.tls = tls->tag;
   j.ca = tls->tag == uw_UrmailFfi_Tls ? tls->data.uw_Tls : NULL;

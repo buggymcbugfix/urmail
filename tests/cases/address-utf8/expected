@@ -1,5 +1,5 @@
 --- check
-refused: E-mail address is not ASCII
+refused: To "bob@m&#252;ller.example": E-mail address is not ASCII
 --- server
 (no client connected)
 --- application log

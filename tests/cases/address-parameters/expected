@@ -1,5 +1,6 @@
 --- check
-refused: E-mail address has text after the '>'
+refused: From "alice@example.com> SMTPUTF8 <alice@example.com": E-mail address has text after the '>'
+To "bob@example.net> NOTIFY=NEVER <bob@example.net": E-mail address has text after the '>'
 --- server
 (no client connected)
 --- application log

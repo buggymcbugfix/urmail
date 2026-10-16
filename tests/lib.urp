@@ -7,4 +7,5 @@ effectful UrmailFfi.send
 
 $/list
 $/option
+$/string
 ../urmail

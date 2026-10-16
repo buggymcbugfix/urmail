@@ -12,7 +12,8 @@
 #   args        shell lines: mode=... (smtpd.py's mode), tls=... (none,
 #               starttls, starttls-ca, starttls-noverify: what the client is
 #               told), form=(...) (the fields of the request, curl -d style;
-#               Attach1..3 spell attachments, see tests/app/test.ur),
+#               Attach1..3 spell attachments and images, and Srcs lists the
+#               img srcs of the HTML version, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
 #               serves up to N sessions), pause=SECONDS (slept between the
 #               requests), url=smtp|bare|smtps|http (how the
@@ -23,11 +24,11 @@
 #               application's log that match, grep -E, are transcribed),
 #               api=io|check (the message is
 #               queued and sent by the application's io task, the default,
-#               or its parts only parsed, by Urmail.emailAddress, headerText,
-#               messageId and Attachment; the transcript's first part is the
-#               statuses the task recorded, or what the parsers said)
-#   expected    the transcript: the statuses or the parsers' verdict, the
-#               server's transcript, then the application's log
+#               or only checked by Urmail.message; the transcript's first
+#               part is the statuses the task recorded, or what
+#               Urmail.message said)
+#   expected    the transcript: the statuses or Urmail.message's verdict,
+#               the server's transcript, then the application's log
 #
 # The compiler is the one URWEB names, run with the flags in URWEB_FLAGS if
 # set, or else `urweb` on the PATH.  Needs python3, openssl, curl and sqlite3
@@ -154,7 +155,7 @@ for case in "${cases[@]}"; do
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
              --data-urlencode "Server=$server"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
-  for f in From To Cc Bcc Subject Body Html User Password MessageId UserAgent Attach1 Attach2 Attach3; do
+  for f in From To Cc Bcc Subject Body Html Srcs User Password MessageId UserAgent Attach1 Attach2 Attach3; do
     v=
     for kv in "${form[@]}"; do
       case $kv in "$f="*) v=${kv#*=} ;; esac

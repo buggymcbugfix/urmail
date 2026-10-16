@@ -1,6 +1,0 @@
---- check
-Fatal ErrorFatal error: test.ur: Attachment "../etc/passwd": name contains '/' or '\'
---- server
-(no client connected)
---- application log
-Fatal error: test.ur: Attachment "../etc/passwd": name contains '/' or '\'

@@ -1,5 +1,5 @@
 --- check
-refused: Empty e-mail address
+refused: To "": Empty e-mail address
 --- server
 (no client connected)
 --- application log

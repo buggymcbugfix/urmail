@@ -2,31 +2,28 @@ urmail: sending e-mail from Ur/Web
 ==================================
 
 An Ur/Web library that sends a message through an SMTP server, over
-libcurl.  `urmail.urs` is the interface: `emailAddress`, `headerText` and
-`messageId` parse the parts of a message's headers (an address is
-`local@domain` or `Name <local@domain>`), and `send`, from an io task,
-sends the message and says what became of it (sent, refused, not sent,
-maybe sent, or failed before any of it was tried).  Sending is not
-something a transaction can undo, so there is no sending from one: a
-request handler queues the message in a table, and a periodic task in io
-claims it in one transaction, sends, and records the status in another.
-`tests/app/test.ur` is such an application.  Needs an Ur/Web with the `io`
-monad.
+libcurl.  `urmail.urs` is the interface: `message` checks a message, its
+addresses (`local@domain` or `Name <local@domain>`), header values,
+attachments and images, and gives it or every problem with it, one line
+each; `send`, from an io task, sends it and says what became of it (sent,
+refused, not sent, maybe sent, or failed before any of it was tried).
+Sending is not something a transaction can undo, so there is no sending
+from one: a request handler queues the message in a table, and a periodic
+task in io claims it and checks it in one transaction, sends, and records
+the status in another.  `tests/app/test.ur` and `examples/queue.ur` are
+such applications.  Needs an Ur/Web with the `io` monad.
 
-Attachments go the same way: `Attachment.fromBlob` checks one (the name
-the recipient sees, in ASCII and optionally in UTF-8; the MIME type, which
-the application's `.urp` must `allow mime`; the bytes), so that a bad one
-is refused where the headers are, and `send` takes the list and puts them
-after the body, base64-encoded, in the order given.  `Attachment.blessBlob`
-is for one the application is sure of: a refusal is then a fatal error
-naming the call (its first argument, `_LOC_`), not a status.  `Attachment.inline`
-marks one as a part of the HTML instead, a logo say, and gives the `cid:`
-url the HTML refers to it by; the part then goes with the HTML, in a
-`multipart/related`, which every client shows where remote images are
-blocked.  `Attachment.fromServedFile` (and `blessServedFile`) takes the
-bytes and the MIME type from a `file` directive of the application's
-`.urp`, by the served path, so its logo is attached from the copy the
-application already serves; `examples/queue.ur` does that.
+An attachment is a `Blob` (a name, a MIME type the application's `.urp`
+must `allow mime`, the bytes) or a `ServedFile`, a file a `file` directive
+of the `.urp` serves, by its path, with the directive's bytes and MIME
+type.  The attachments go after the body, base64-encoded, in the order
+given.  The HTML version is a `page`, written as for a browser: an img
+whose src is a path a `file` directive serves gets that file sent with
+the HTML, in a `multipart/related` (which clients show where remote
+images are blocked), and the src points at it in the mail.  An image that
+is not a served file, one the application makes, is given in `Images`
+with the url the page uses for it.  The page itself stays as it is, so the
+application can serve it to a browser as well.
 
 Building
 --------

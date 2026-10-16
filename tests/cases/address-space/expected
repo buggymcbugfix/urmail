@@ -1,5 +1,5 @@
 --- check
-refused: E-mail address has a character not allowed before the '@'
+refused: From "a b@example.com": E-mail address has a character not allowed before the '@'
 --- server
 (no client connected)
 --- application log

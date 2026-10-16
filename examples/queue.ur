@@ -5,8 +5,10 @@
    MaybeSent (the connection died after the upload, before the server's
    verdict) is the application's decision to send again or not; here it is
    sent again, and the Message-ID, a function of the row, lets receivers
-   drop a duplicate.  The HTML version carries the application's logo, a
-   file it serves, as an inline part. *)
+   drop a duplicate.  The HTML version shows the application's logo by the
+   path it is served at, as a page in a browser would; Urmail.message
+   attaches the file for the mail, so the same page can be shown in a
+   browser too. *)
 
 val serverUrl = "smtp://you.com:587"
 val user = "you"
@@ -23,24 +25,17 @@ fun enqueue r =
          VALUES ({[id]}, {[r.From]}, {[r.To]}, {[r.Subject]}, {[r.Text]}, FALSE, NULL));
     return <xml><body>Queued as #{[id]}</body></xml>
 
-(* The logo: the `file` directive in queue.urp makes the bytes and the MIME
-   type the compiler's, and blessing it says that a refusal (nothing served
-   at the path) is a mistake here, to be reported as a fatal error naming
-   this line, not a status of the message. *)
-val logo =
-    Urmail.Attachment.blessServedFile _LOC_ (Urmail.Attachment.asciiName "logo.png") "/logo.png"
+fun page (text : string) : page =
+    <xml><body><img src="/logo.png"/><p>{[text]}</p></body></xml>
 
-(* The headers of a queued message, parsed from the text the row holds, or
-   what is wrong with the first part that is not right.  The Message-ID is
+(* The message of a queued row, or what is wrong with it.  The Message-ID is
    a function of the row, so that a message sent twice is one message to
    the receiver. *)
-fun headers r =
-    from <- Urmail.emailAddress r.From;
-    to <- Urmail.emailAddress r.To;
-    subject <- Urmail.headerText r.Subject;
-    messageId <- Urmail.messageId ("<queue-" ^ show r.Id ^ "@you.com>");
-    return {From = from, To = to :: [], Cc = [], Bcc = [], Subject = subject,
-            UserAgent = None, MessageId = Some messageId}
+fun message r =
+    Urmail.message {From = r.From, To = r.To :: [], Cc = [], Bcc = [], Subject = r.Subject,
+                    UserAgent = None, MessageId = Some ("<queue-" ^ show r.Id ^ "@you.com>"),
+                    PlainTextBody = r.Text, HtmlBody = Some {Page = page r.Text, Images = []},
+                    Attachments = []}
 
 (* A claim outlives the process that made it: a message the application
    was sending when it died stays claimed, and may or may not have gone out.
@@ -50,24 +45,18 @@ fun headers r =
 task initialize = fn () =>
     dml (UPDATE queue SET Claimed = FALSE WHERE Claimed AND Status IS NULL)
 
-(* Step 1, a transaction: the next message, claimed, with its headers
-   checked. *)
+(* Step 1, a transaction: the next message, claimed and checked. *)
 val claim =
     r <- oneOrNoRows1 (SELECT * FROM queue WHERE NOT queue.Claimed ORDER BY queue.Id LIMIT 1);
     case r of
         None => return None
       | Some r =>
         dml (UPDATE queue SET Claimed = TRUE WHERE Id = {[r.Id]});
-        case headers r of
+        case message r of
             Failure e =>
             dml (UPDATE queue SET Status = {[Some ("not sent: " ^ show e)]} WHERE Id = {[r.Id]});
             return None
-          | Success h =>
-            let
-                val (l, logoUrl) = Urmail.Attachment.inline logo
-            in
-                return (Some (r, h, l, logoUrl))
-            end
+          | Success m => return (Some (r.Id, m))
 
 (* Step 3, another transaction: what became of it. *)
 fun record id status =
@@ -98,12 +87,10 @@ task periodic 1 = fn () =>
     claimed <- runTransaction claim;
     case claimed of
         None => return ()
-      | Some (r, h, logo, logoUrl) =>
-        status <- Urmail.send (h ++ {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
-                                     Text = r.Text,
-                                     Html = Some <xml><body><img src={logoUrl}/><p>{[r.Text]}</p></body></xml>,
-                                     Attachments = logo :: []});
-        runTransaction (record r.Id status)
+      | Some (id, m) =>
+        status <- Urmail.send {ServerUrl = serverUrl, Tls = Urmail.Tls None, User = user, Password = password,
+                               Message = m};
+        runTransaction (record id status)
 
 fun main () = return <xml><body>
   <form>

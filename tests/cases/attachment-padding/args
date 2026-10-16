@@ -4,6 +4,6 @@
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Sizes Body=$'See attached\n' User=alice Password=secret
-      Attach1='blob|two.txt||text/plain|ab'
-      Attach2="blob|line.txt||text/plain|$(printf 'a%.0s' $(seq 1 57))"
-      Attach3="blob|more.txt||text/plain|$(printf 'b%.0s' $(seq 1 58))")
+      Attach1='blob|two.txt|text/plain|ab'
+      Attach2="blob|line.txt|text/plain|$(printf 'a%.0s' $(seq 1 57))"
+      Attach3="blob|more.txt|text/plain|$(printf 'b%.0s' $(seq 1 58))")

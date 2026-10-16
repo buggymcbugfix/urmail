@@ -50,11 +50,17 @@ MESSAGE:
 | QQ==
 | --=_urmail_mixed
 | Content-Type: text/plain
-| Content-Disposition: attachment; filename*=UTF-8''Notizen%20%C3%BCber%20%C3%84.txt;
-|  filename="\"quoted\" name.txt"
+| Content-Disposition: attachment; filename="\"quoted\" name.txt"
 | Content-Transfer-Encoding: base64
 |
 | Qg==
+| --=_urmail_mixed
+| Content-Type: text/plain
+| Content-Disposition: attachment; filename*=UTF-8''Notizen%20%C3%BCber%20%C3%84.txt;
+|  filename="Notizen _ber _.txt"
+| Content-Transfer-Encoding: base64
+|
+| Qw==
 | --=_urmail_mixed--
 END
 S: 250 queued

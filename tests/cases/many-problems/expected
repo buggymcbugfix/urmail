@@ -1,0 +1,14 @@
+--- check
+refused: From "alice": E-mail address has no '@'
+To "bob\n@example.net": E-mail address contains a line break
+Subject "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"...: Header value too long
+MessageId "nobrackets@example.com": Message-ID is not of the form <left@right>
+Image "/unused": given twice in Images
+img src "/logo.pgn": no entry of Images names it, and no file directive serves it
+img src "/untyped": no MIME type is known for it; give one in its file directive
+Image "/unused": no img src of the page uses it
+Attachment "a/b.txt": name contains '/' or '\'
+Attachment "a/b.txt": MIME type has a character outside type/subtype
+--- server
+(no client connected)
+--- application log
