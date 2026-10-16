@@ -26,7 +26,10 @@
 #               queued and sent by the application's io task, the default,
 #               or only checked by Urmail.message; the transcript's first
 #               part is the statuses the task recorded, or what
-#               Urmail.message said)
+#               Urmail.message said).  The file runs in a shell of its own,
+#               under set -u; a setting with a value not listed here, or a
+#               variable that is not a setting and whose name does not
+#               start with '_', means the case cannot run.
 #   expected    the transcript: the statuses or Urmail.message's verdict,
 #               the server's transcript (not with api=check, which starts no
 #               server), then the application's log
@@ -77,6 +80,8 @@ for tool in python3 openssl curl sqlite3 timeout; do
   command -v "$tool" >/dev/null || die "$tool is needed"
 done
 command -v "$urweb" >/dev/null || die "no urweb: set URWEB or put it on the PATH"
+modes=$(python3 "$here/smtpd.py" --list-modes | tr '\n' ' ') || die "smtpd.py does not run"
+fields="From To Cc Bcc Subject Body Html Srcs User Password MessageId UserAgent Attach1 Attach2 Attach3"
 [ -f "$build/tests/config.urp" ] || die "tests/config.urp is missing: run configure and make first"
 
 if [ $# -gt 0 ]; then
@@ -174,6 +179,33 @@ answered() {
   if [ "$1" = 000 ]; then echo "got no answer"; else echo "was answered with HTTP $1"; fi
 }
 
+# A case's settings, read from its args file (the header above).  The file
+# runs in a subshell, so that a syntax error, an unset variable or an exit
+# in it ends only that; the settings come back as declare lines.
+read_args() {
+  (
+    set -u
+    mode=accept
+    tls=none
+    form=()
+    sends=1
+    pause=0
+    api=io
+    url=smtp
+    app_env=()
+    logfilter=
+    _before=$(compgen -v | sort)
+    # shellcheck disable=SC1090
+    . "$1" || exit
+    _unknown=$(comm -13 <(echo "$_before") <(compgen -v | sort) | grep -v -e '^_' -e '^BASH_')
+    if [ -n "$_unknown" ]; then
+      echo "not a setting:" $_unknown >&2
+      exit 1
+    fi
+    declare -p mode tls form sends pause api url app_env logfilter
+  )
+}
+
 # Wait for process $2 to write file $1, at most start_limit seconds.
 wait_for_file() {
   local i
@@ -188,15 +220,27 @@ wait_for_file() {
 run_case() {
   local case=$1
   local dir=$here/cases/$1 work=$out/$1
-  local mode=accept tls=none sends=1 pause=0 api=io url=smtp logfilter=
-  local -a form=() app_env=()
-  local ca server handler smtp_port app_port f v kv code i n deadline
+  local settings ca server handler smtp_port app_port f kv code i n deadline
   local -a srv_args curl_args
+  local -A value=()
+
+  # A directory of its own, emptied: nothing of an earlier run, or of an
+  # earlier case of the same name, can make it pass.
+  rm -rf "$work"
+  mkdir -p "$work"
 
   [ -f "$dir/args" ] || { cannot_run "no args file"; return; }
-  # shellcheck disable=SC1090
-  . "$dir/args"
+  if ! settings=$(read_args "$dir/args" 2> "$work/args.err") || [ -z "$settings" ]; then
+    [ -s "$work/args.err" ] || echo "it ended before its last line" > "$work/args.err"
+    cannot_run "its args file failed: $(tr '\n' ' ' < "$work/args.err")"; return
+  fi
+  # The settings, as variables of this function.
+  eval "$settings"
 
+  case " none $modes" in
+    *" $mode "*) ;;
+    *) cannot_run "unknown mode $mode"; return ;;
+  esac
   case $tls in
     none|starttls|starttls-noverify) ca= ;;
     starttls-ca) ca=$out/cert.pem ;;
@@ -211,11 +255,25 @@ run_case() {
     check) handler=check ;;
     *) cannot_run "unknown api $api"; return ;;
   esac
-
-  # A directory of its own, emptied: nothing of an earlier run, or of an
-  # earlier case of the same name, can make it pass.
-  rm -rf "$work"
-  mkdir -p "$work"
+  [[ $sends =~ ^[1-9][0-9]*$ ]] || { cannot_run "sends=$sends is not a number of requests"; return; }
+  [[ $pause =~ ^[0-9]+$ ]] || { cannot_run "pause=$pause is not a whole number of seconds"; return; }
+  for kv in "${form[@]}"; do
+    f=${kv%%=*}
+    case " $fields " in
+      *" $f "*) ;;
+      *) cannot_run "form has ${f:0:40}, which is not a field"; return ;;
+    esac
+    [[ $kv == *=* ]] || { cannot_run "form has $f, which is not NAME=VALUE"; return; }
+    [ -z "${value[$f]+set}" ] || { cannot_run "form gives $f twice"; return; }
+    value[$f]=${kv#*=}
+  done
+  for kv in "${app_env[@]}"; do
+    [[ $kv =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { cannot_run "app_env has ${kv:0:40}, which is not NAME=VALUE"; return; }
+  done
+  if [ -n "$logfilter" ]; then
+    grep -E -e "$logfilter" < /dev/null 2> "$work/args.err"
+    [ $? -le 1 ] || { cannot_run "logfilter: $(tr '\n' ' ' < "$work/args.err")"; return; }
+  fi
 
   # The server, with STARTTLS on offer unless the case says otherwise; or,
   # with mode=none, no server: a port nothing listens on.  A check sends
@@ -261,12 +319,17 @@ run_case() {
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time "$request_limit"
              --data-urlencode "Server=$server"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
-  for f in From To Cc Bcc Subject Body Html Srcs User Password MessageId UserAgent Attach1 Attach2 Attach3; do
-    v=
-    for kv in "${form[@]}"; do
-      case $kv in "$f="*) v=${kv#*=} ;; esac
-    done
-    curl_args+=(--data-urlencode "$f=$v")
+  # The values from files, since one on the command line is limited to 128
+  # KiB.  An empty file gives no field at all, so an empty value is given
+  # as such.
+  mkdir "$work/fields"
+  for f in $fields; do
+    if [ -n "${value[$f]-}" ]; then
+      printf '%s' "${value[$f]}" > "$work/fields/$f"
+      curl_args+=(--data-urlencode "$f@$work/fields/$f")
+    else
+      curl_args+=(--data-urlencode "$f=")
+    fi
   done
   for ((i = 1; i <= sends; ++i)); do
     [ "$i" -gt 1 ] && [ "$pause" != 0 ] && sleep "$pause"
@@ -325,12 +388,12 @@ run_case() {
     fi
     echo "--- application log"
     # libcurl ends the lines of its trace with CRLF.
-    if [ -n "$logfilter" ]; then grep -E "$logfilter" "$work/app.log" | tr -d '\r'; else tr -d '\r' < "$work/app.log"; fi
+    if [ -n "$logfilter" ]; then grep -E -e "$logfilter" "$work/app.log" | tr -d '\r'; else tr -d '\r' < "$work/app.log"; fi
   } > "$work/actual.raw"
   normalize "$work/actual.raw" > "$work/actual"
 
   if [ $update = 1 ]; then
-    cp "$work/actual" "$dir/expected"
+    cp "$work/actual" "$dir/expected" || { cannot_run "its expected file cannot be written"; return; }
     echo "$case: updated"
   elif [ ! -f "$dir/expected" ]; then
     case_failed "no expected file (run with -u to create it)"

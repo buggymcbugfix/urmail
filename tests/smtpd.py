@@ -49,7 +49,8 @@ The modes:
                       closed instead of the TLS handshake
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is
-offered unless the mode says otherwise; anything else is refused."""
+offered unless the mode says otherwise; anything else is refused.
+--list-modes prints the modes, one per line."""
 
 import argparse
 import base64
@@ -60,6 +61,12 @@ import ssl
 import sys
 
 CRLF = b"\r\n"
+
+MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data",
+         "drop-after-data", "drop-before-data", "hang", "no-starttls", "reject-auth",
+         "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
+         "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
+         "starttls-drop")
 
 
 class Session:
@@ -231,8 +238,9 @@ class Session:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--transcript", required=True)
-    ap.add_argument("--mode", default="accept")
+    ap.add_argument("--transcript")
+    ap.add_argument("--mode", default="accept", choices=MODES)
+    ap.add_argument("--list-modes", action="store_true")
     ap.add_argument("--cert")
     ap.add_argument("--key")
     ap.add_argument("--port-file")
@@ -241,6 +249,11 @@ def main():
     ap.add_argument("--sessions", type=int, default=1,
                     help="serve up to this many sessions, one after the other")
     args = ap.parse_args()
+    if args.list_modes:
+        print("\n".join(MODES))
+        return
+    if not args.transcript:
+        ap.error("--transcript is required")
 
     sslctx = None
     if args.cert:
