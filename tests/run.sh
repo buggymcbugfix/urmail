@@ -74,6 +74,11 @@ esac
 [ -f "$urweb" ] && [ -x "$urweb" ] || die "URWEB=$urweb is not an executable"
 urweb_flags=${URWEB_FLAGS:-}
 
+# URMAIL_TIMEOUT for the application, in seconds: a send gives up after
+# this long without progress, and a connection idle for longer is closed at
+# the next send.  The cases' comments and pauses are written against it.
+urmail_timeout=2
+
 # The limits on the waits, in seconds: for the server and the application
 # to start; for a request to be answered; for the statuses to be recorded
 # after the last request (what has been recorded by then is what the case
@@ -335,7 +340,11 @@ run_case() {
     smtp_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
     echo "(no server)" > "$work/transcript"
   else
-    srv_args=(--transcript "$work/transcript" --mode "$mode" --port-file "$work/port" --sessions "$sends")
+    # The server waits for a client, and for each command, longer than the
+    # case can take: through its pauses, and then as long as the runner
+    # waits for the statuses.
+    srv_args=(--transcript "$work/transcript" --mode "$mode" --port-file "$work/port" --sessions "$sends"
+              --timeout $((pause * sends + status_limit)))
     [ "$mode" != no-starttls ] && srv_args+=(--cert "$out/cert.pem" --key "$out/key.pem")
     python3 "$here/smtpd.py" "${srv_args[@]}" 2> "$work/smtpd.err" &
     srv_pid=$!
@@ -349,7 +358,7 @@ run_case() {
   # the case's.  -d3 writes pid=, port= and status= on fd 3 once it listens,
   # and the process that was started exits, leaving the server running.
   sqlite3 "$work/app.db" < "$out/app.sql" >/dev/null   # a PRAGMA in there prints its value
-  timeout "$start_limit" env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" \
+  timeout "$start_limit" env URMAIL_TIMEOUT=$urmail_timeout URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" \
     "$out/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3> "$work/handshake" > /dev/null 2> "$work/app.log"
   code=$?
   app_pid=$(sed -n 's/^pid=\([0-9][0-9]*\)$/\1/p' "$work/handshake")
