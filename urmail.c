@@ -2074,6 +2074,9 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
   char line[SMTP_LINE];
   (void)curl;
 
+  if (!t)  // after the send: the handle was cleaned up, or its connection closed
+    return 0;
+
   switch (type) {
   case CURLINFO_TEXT:
     if (debugging())
@@ -2648,8 +2651,13 @@ static void deliver(job *j, outcome *o) {
     dead = c->curl;
     c->curl = NULL;
     set_open(c, 0);
-  } else  // the handle outlives t
+  } else {
+    // The handle outlives t, which libcurl must not use any more: it may
+    // write to the error buffer, or call the trace, when the connection is
+    // closed later.
     curl_easy_setopt(c->curl, CURLOPT_ERRORBUFFER, NULL);
+    curl_easy_setopt(c->curl, CURLOPT_DEBUGDATA, NULL);
+  }
   c->last_used = now_ms();
   pthread_mutex_unlock(&c->lock);
   if (dead)
