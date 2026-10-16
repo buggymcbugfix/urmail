@@ -1089,8 +1089,8 @@ static void buf_base64(uw_context ctx, buf *b, const unsigned char *s, size_t n)
                        words, since a blank kept between two encoded words
                        is lost
      start  | any      the first is the one after the colon, and is not the
-                       value's; a line break before the first token leaves the
-                       value's blanks where they are
+                       value's; after a line break before the first token it
+                       is still the first, unless the line would be too long
 
    A blank cannot be written at the end of a line that is full, and a line
    that is only blanks is not allowed, so the word before blanks that end a
@@ -1142,9 +1142,11 @@ static void header_append(header_out *h, const char *s) {
 // while the line has no token yet; else on a new line, which starts with
 // the blanks. That is folding (RFC 5322, section 3.2.2), which a reader
 // undoes by removing the line break alone, so the blanks stay as they
-// were.  Before the first token, the first blank is the one after the
-// colon, which is not the value's: a fold there leaves it out, so that the
-// new line holds the value's own blanks and the token.
+// were. Before the first token, the first blank is the one after the
+// colon, which is not the value's, and a reader that takes the first blank
+// after the colon as that one needs it after a fold too. It is left out
+// only if the new line would be longer than 998 then, which a value of 998
+// bytes makes it.
 typedef struct {
   int new_line;    // whether it goes on a new line
   size_t skipped;  // how many of the blanks are left out there
@@ -1157,7 +1159,7 @@ static placement header_place(const header_out *h, size_t ws_n, size_t n) {
 
   if (h->fold_next || p.end > limit) {
     p.new_line = 1;
-    p.skipped = !h->has_token && ws_n > 1;
+    p.skipped = !h->has_token && ws_n > 1 && ws_n + n > MAX_LINE;
     p.end = ws_n - p.skipped + n;
   }
   return p;
