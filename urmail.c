@@ -330,12 +330,20 @@ struct problem {
   struct problem *next;
 };
 
+// The Content-ID of an image, what the HTML refers to it by: a hash of the
+// image, at a domain of the library's own (see add_image).
+#define CONTENT_ID_DOMAIN "urmail"
+#define CONTENT_ID_FORMAT "%016llx@" CONTENT_ID_DOMAIN
+#define CONTENT_ID_FORMAT_NTH "%016llx.%u@" CONTENT_ID_DOMAIN
+
 // An attachment or an image, checked.
 struct part {
   uw_Basis_string name;  // what the recipient sees, as given
   uw_Basis_string type;  // type/subtype
   uw_Basis_blob data;
-  char content_id[24];   // hex@urmail: what the HTML refers to an image by
+  // An image of the message only: its hash and Content-ID.
+  unsigned long long hash;
+  char content_id[sizeof "0123456789abcdef.4294967295@" CONTENT_ID_DOMAIN];
 };
 
 struct part_list {
@@ -537,34 +545,14 @@ uw_UrmailFfi_message uw_UrmailFfi_html(uw_context ctx, uw_Basis_string page, uw_
   return m2;
 }
 
-// The Content-ID of an image: a function of the part (FNV-1a over its name,
-// type and bytes), so that the same image given twice, or found at two
-// paths, is sent once.
-static void content_id(struct part *p) {
-  unsigned long long h = 14695981039346656037ULL;
-  const unsigned char *c;
-  size_t i;
-
-  for (c = (const unsigned char *)p->name; ; ++c) {
-    h = (h ^ *c) * 1099511628211ULL;
-    if (!*c) break;
-  }
-  for (c = (const unsigned char *)p->type; ; ++c) {
-    h = (h ^ *c) * 1099511628211ULL;
-    if (!*c) break;
-  }
-  for (i = 0, c = (const unsigned char *)p->data.data; i < p->data.size; ++i, ++c)
-    h = (h ^ *c) * 1099511628211ULL;
-  snprintf(p->content_id, sizeof p->content_id, "%016llx@urmail", h);
-}
-
 static struct part *new_part(uw_context ctx, uw_Basis_string name, uw_Basis_string type, uw_Basis_blob data) {
   struct part *p = uw_malloc(ctx, sizeof *p);
 
   p->name = name;
   p->type = type;
   p->data = data;
-  content_id(p);
+  p->hash = 0;
+  p->content_id[0] = 0;
   return p;
 }
 
@@ -1363,16 +1351,61 @@ static struct part *image_for(uw_context ctx, uw_UrmailFfi_message m, const char
   return ok ? new_part(ctx, f->name, f->type, f->data) : NULL;
 }
 
+// FNV-1a, 64 bits, over s[0..n), continuing from h.
+#define FNV_OFFSET_BASIS 14695981039346656037ULL
+#define FNV_PRIME 1099511628211ULL
+
+static unsigned long long fnv1a(unsigned long long h, const void *s, size_t n) {
+  const unsigned char *c = s;
+  size_t i;
+
+  for (i = 0; i < n; ++i)
+    h = (h ^ c[i]) * FNV_PRIME;
+  return h;
+}
+
+// An image's hash: of its name, type and bytes, each name and type with its
+// NUL, so that no two of those can run together.
+static unsigned long long part_hash(const struct part *p) {
+  unsigned long long h = fnv1a(FNV_OFFSET_BASIS, p->name, strlen(p->name) + 1);
+
+  h = fnv1a(h, p->type, strlen(p->type) + 1);
+  return fnv1a(h, p->data.data, p->data.size);
+}
+
+static int same_part(const struct part *a, const struct part *b) {
+  return !strcmp(a->name, b->name) && !strcmp(a->type, b->type) && a->data.size == b->data.size
+         && !memcmp(a->data.data, b->data.data, a->data.size);
+}
+
 // An image of the message, once: the one already there when it is the same
-// (its Content-ID being a function of the part), else this one.
+// (name, type and bytes), else a copy of this one with its Content-ID.  The
+// hash finds the image that may be the same, and the bytes decide, since
+// FNV-1a can give two images the same hash.  The Content-ID is the hash, so
+// that it is unique beyond the message without anything random, and
+// Urmail.message stays a function; another image with the same hash gets a
+// count after it.
 static struct part *add_image(uw_context ctx, uw_UrmailFfi_message m, struct part *p) {
   struct part_list *l;
+  struct part *image;
+  unsigned long long h = part_hash(p);
+  unsigned same_hash = 0;
 
   for (l = m->images; l; l = l->next)
-    if (!strcmp(l->part->content_id, p->content_id))
-      return l->part;
-  m->images = cons_part(ctx, p, m->images);
-  return p;
+    if (l->part->hash == h) {
+      if (same_part(l->part, p))
+        return l->part;
+      ++same_hash;
+    }
+  image = uw_malloc(ctx, sizeof *image);
+  *image = *p;
+  image->hash = h;
+  if (same_hash)
+    snprintf(image->content_id, sizeof image->content_id, CONTENT_ID_FORMAT_NTH, h, same_hash + 1);
+  else
+    snprintf(image->content_id, sizeof image->content_id, CONTENT_ID_FORMAT, h);
+  m->images = cons_part(ctx, image, m->images);
+  return image;
 }
 
 // The first "</script", ignoring case, or NULL.

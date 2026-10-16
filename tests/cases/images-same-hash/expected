@@ -41,8 +41,8 @@ MESSAGE:
 | Content-Transfer-Encoding: quoted-printable
 |
 | <!DOCTYPE html><html><body><p>Hello <b>world</b> &amp; goodbye</p><img src=
-| =3D"cid:9e5840516bf9131f@urmail" /><img src=3D"cid:9e5840516bf9131f@urmail"=
-|  /></body></html>
+| =3D"cid:9e5840516bf9131f@urmail" /><img src=3D"cid:9e5840516bf9131f.2@urmai=
+| l" /></body></html>
 | --=_urmail_alternative--
 | --=_urmail_related
 | Content-Type: image/png
@@ -51,6 +51,13 @@ MESSAGE:
 | Content-Transfer-Encoding: base64
 |
 | ZmM2YTY0ZDhmYmMwMDJmOA==
+| --=_urmail_related
+| Content-Type: image/png
+| Content-ID: <9e5840516bf9131f.2@urmail>
+| Content-Disposition: inline; filename="a.png"
+| Content-Transfer-Encoding: base64
+|
+| NWNmOGJlOGE1MGI4NzJkYw==
 | --=_urmail_related--
 END
 S: 250 queued
