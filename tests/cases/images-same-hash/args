@@ -1,0 +1,10 @@
+# Two images that differ but have the same hash: the same name and type,
+# and bytes that FNV-1a, the 64-bit hash behind the Content-IDs, maps to the
+# same value (found by a search).  Both must be sent, each with a
+# Content-ID of its own, and each img src must point at its own.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Images Body=$'Plain text\n' Html=world User=alice Password=secret
+      Srcs=/first,/second
+      Attach1='image-blob|/first|a.png|image/png|fc6a64d8fbc002f8'
+      Attach2='image-blob|/second|a.png|image/png|5cf8be8a50b872dc')
