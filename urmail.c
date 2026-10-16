@@ -1978,6 +1978,7 @@ typedef struct {
   reply last;         // the last complete reply
   reply partial;      // the reply being read, until its last line
   int in_auth;        // the AUTH exchange is on: what goes out is credentials
+  char error[CURL_ERROR_SIZE];  // libcurl's text for the result, "" if it gave none
 } trace;
 
 // One line of libcurl's, without its line end, truncated to what fits.
@@ -2191,16 +2192,41 @@ static long timeout_seconds(void) {
   return t;
 }
 
-// What a failure without a reply to decide it means: libcurl's result, and
-// whether the whole message had gone to libcurl.  Only after that may the
-// server have the end of the data, and so the message.
-static void judge_error(CURLcode res, int all_sent, outcome *o) {
+// Whether libcurl's text for a failed TLS handshake says that the connection
+// was lost, which may not be so the next time, and not that the two sides
+// could not agree, which stays so.  libcurl has one result for both, and
+// its text is all there is to tell them by.  Its own words for a failure of
+// the socket begin "Recv failure" or "Send failure"; for the stream ending,
+// the TLS library has its own ("unexpected eof while reading" in OpenSSL,
+// "non-properly terminated" in GnuTLS).  Anything else is taken for a
+// disagreement: one that was a lost connection after all is reported as
+// misconfigured, which a person looks at, where the other mistake would be
+// tried again for ever.
+static int connection_lost(const char *text) {
+  static const char *const words[] = {"recv failure", "send failure", "reset", "broken pipe", "eof",
+                                      "closed", "terminated", "timed out"};
+  size_t i;
+
+  for (i = 0; i < sizeof words / sizeof *words; ++i)
+    if (strcasestr(text, words[i]))
+      return 1;
+  return 0;
+}
+
+// What a failure without a reply to decide it means: libcurl's result and
+// its text, and whether the whole message had gone to libcurl.  Only after
+// that may the server have the end of the data, and so the message.
+static void judge_error(CURLcode res, const char *error, int all_sent, outcome *o) {
   const char *why = curl_easy_strerror(res);
   // Room for the seconds as any long prints: three digits per byte and a
   // sign.
   char no_reply[sizeof "the server did not answer the message within " + sizeof(long) * 3 + 1 + sizeof " s"];
 
   o->reply.code = 0;
+  if (res == CURLE_SSL_CONNECT_ERROR && !connection_lost(error)) {
+    decided(o, MISCONFIGURED, "the TLS handshake with the server failed", *error ? error : why);
+    return;
+  }
   switch (res) {
   case CURLE_OPERATION_TIMEDOUT:
     if (all_sent) {
@@ -2454,6 +2480,7 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   memset(t, 0, sizeof *t);
   curl_easy_reset(curl);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);  // threads: no SIGALRM for timeouts
+  curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, t->error);
   // The trace is always on, since the status is made from it; it prints
   // only when debugging.
   curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, trace_callback);
@@ -2599,7 +2626,7 @@ static void deliver(job *j, outcome *o) {
       fresh = 1;
       continue;
     }
-    judge_error(res, up.length == 0, o);
+    judge_error(res, t.error, up.length == 0, o);
     break;
   }
 
@@ -2609,7 +2636,8 @@ static void deliver(job *j, outcome *o) {
     dead = c->curl;
     c->curl = NULL;
     set_open(c, 0);
-  }
+  } else  // the handle outlives t
+    curl_easy_setopt(c->curl, CURLOPT_ERRORBUFFER, NULL);
   c->last_used = now_ms();
   pthread_mutex_unlock(&c->lock);
   if (dead)

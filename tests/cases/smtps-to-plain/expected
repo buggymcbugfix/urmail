@@ -1,5 +1,5 @@
 --- status
-Deferred: SSL connect error
+Misconfigured: the TLS handshake with the server failed (TLS connect error: error:0A00010B:SSL routines::wrong version number)
 --- server
 S: 220 fake.test ESMTP
 (client closed the connection)

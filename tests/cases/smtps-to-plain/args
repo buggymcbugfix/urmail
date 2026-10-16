@@ -1,10 +1,9 @@
 # An smtps:// URL for a server that does not speak TLS on that port: libcurl
 # starts the handshake, the server answers in plain text, and the handshake
-# fails with "wrong version number".  That does not change by waiting, so it
-# is for the person who set the address up to put right, but the library
-# says Deferred, as for a connection lost in the handshake, and a queue
-# that tries again on Deferred tries for ever.  The expected file records
-# what the library writes today, not what it should write.
+# fails with "wrong version number".  That does not change by waiting, so
+# it is for the person who set the address up to put right:
+# Misconfigured.  (starttls-dropped and starttls-eof are handshakes that
+# end because the connection is lost, and are tried again.)
 mode=accept
 tls=none
 url=smtps

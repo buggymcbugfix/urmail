@@ -120,7 +120,9 @@ datatype sendStatus =
 	  (* Nothing is wrong with the message; the server URL, the TLS
 	     setting, the login or what the account may send is.  The URL is
 	     not smtp:// or smtps://; the certificate did not verify or the CA
-	     file cannot be used; STARTTLS is not offered; the server refused
+	     file cannot be used; the TLS handshake failed for a reason that
+	     is not a lost connection (the server does not speak TLS on that
+	     port, say); STARTTLS is not offered; the server refused
 	     the session (a 5xx before MAIL FROM: the greeting, EHLO, STARTTLS
 	     or the login) or the sender (a 5xx to MAIL FROM but 552); it
 	     wants a login (530, or 5.7.0 to MAIL FROM or RCPT TO); or it
