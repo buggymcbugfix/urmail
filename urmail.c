@@ -885,6 +885,49 @@ static void buf_base64(uw_context ctx, buf *b, const unsigned char *s, size_t n)
   }
 }
 
+// Whether s[0..n) is all ASCII.
+static int is_ascii(const unsigned char *s, size_t n) {
+  size_t i;
+
+  for (i = 0; i < n; ++i)
+    if (s[i] >= 0x80)
+      return 0;
+  return 1;
+}
+
+// Whether s[0..n) is UTF-8 as RFC 3629 has it: no overlong forms, no
+// surrogates, nothing above U+10FFFF.
+static int is_utf8(const unsigned char *s, size_t n) {
+  size_t i = 0, len, k;
+  unsigned long c, min;
+
+  while (i < n) {
+    if (s[i] < 0x80) {
+      ++i;
+      continue;
+    }
+    if ((s[i] & 0xE0) == 0xC0)
+      len = 2, c = s[i] & 0x1F, min = 0x80;
+    else if ((s[i] & 0xF0) == 0xE0)
+      len = 3, c = s[i] & 0x0F, min = 0x800;
+    else if ((s[i] & 0xF8) == 0xF0)
+      len = 4, c = s[i] & 0x07, min = 0x10000;
+    else
+      return 0;
+    if (n - i < len)
+      return 0;
+    for (k = 1; k < len; ++k) {
+      if ((s[i+k] & 0xC0) != 0x80)
+        return 0;
+      c = c << 6 | (s[i+k] & 0x3F);
+    }
+    if (c < min || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
+      return 0;
+    i += len;
+  }
+  return 1;
+}
+
 static int is_ascii_text(const char *s) {
   for (; *s; ++s)
     if ((unsigned char)*s >= 0x80 || ((unsigned char)*s < 0x20 && *s != '\t'))
@@ -1116,7 +1159,15 @@ static void buf_ascii_copy(uw_context ctx, buf *b, const char *s) {
 // two is then right, and on a line of its own; filename= is then an ASCII
 // copy, for the clients that read only that.
 static void buf_part(uw_context ctx, buf *b, struct part *p, int is_image) {
-  buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, p->type); buf_str(ctx, b, "\r\n");
+  const unsigned char *data = (const unsigned char *)p->data.data;
+
+  buf_str(ctx, b, "Content-Type: "); buf_str(ctx, b, p->type);
+  // A text type without a charset is US-ASCII (RFC 2046, section 4.1.2).
+  // Text in UTF-8 is labelled so; text in another encoding cannot be told
+  // from bytes alone, and is left as it is.
+  if (!strncasecmp(p->type, "text/", 5) && !is_ascii(data, p->data.size) && is_utf8(data, p->data.size))
+    buf_str(ctx, b, "; charset=utf-8");
+  buf_str(ctx, b, "\r\n");
   if (is_image) {
     buf_str(ctx, b, "Content-ID: <"); buf_str(ctx, b, p->content_id); buf_str(ctx, b, ">\r\n");
   }

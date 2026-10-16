@@ -33,7 +33,7 @@ MESSAGE:
 | See attached
 |
 | --=_urmail_mixed
-| Content-Type: text/plain
+| Content-Type: text/plain; charset=utf-8
 | Content-Disposition: attachment; filename="Widerrufsbelehrung.txt"
 | Content-Transfer-Encoding: base64
 |

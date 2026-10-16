@@ -1,7 +1,7 @@
 # A text attachment in UTF-8, as an order confirmation attaches its terms:
-# it goes out as text/plain without a charset, which MIME reads as US-ASCII,
-# so a client that follows the label shows the umlaut as two wrong
-# characters.  A charset cannot be given (attachment-text-charset).
+# it goes out labelled charset=utf-8, so that a client shows the umlaut as
+# it is.  One in ASCII needs no label (attachment); a charset cannot be
+# given in the MIME type (attachment-text-charset).
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Terms Body=$'See attached\n' User=alice Password=secret

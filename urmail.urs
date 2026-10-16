@@ -21,7 +21,10 @@ val show_emailAddress : show emailAddress
    MimeType is type/subtype and must be allowed by the project file
    (`allow mime`).  A ServedFile is the file a `file` directive serves at
    exactly ServedPath, with the directive's bytes and MIME type; its name
-   is the path's last segment unless Name gives one. *)
+   is the path's last segment unless Name gives one.  A text/* attachment
+   whose bytes are UTF-8, and not all ASCII, is labelled charset=utf-8;
+   one in another encoding goes out without a charset, which means
+   US-ASCII. *)
 datatype attachment =
 	| Blob of {Name : string, MimeType : string, Data : blob}
 	| ServedFile of {Name : option string, ServedPath : string}
