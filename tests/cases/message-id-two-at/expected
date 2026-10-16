@@ -1,0 +1,3 @@
+--- check
+refused: MessageId "<a@b@example.com>": Message-ID has a character not allowed after the '@'
+--- application log

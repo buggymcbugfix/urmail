@@ -1,0 +1,8 @@
+# The server takes the whole message and never answers it.  The send is
+# given up after URMAIL_TIMEOUT (run.sh's urmail_timeout, 2 s) without a
+# reply, and the status is MaybeSent: the message may have been
+# delivered, as after a connection lost at that point, and the detail
+# says what happened.
+mode=hang-after-data
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -1,0 +1,4 @@
+# STARTTLS with the server's certificate given as the CA.
+mode=accept
+tls=starttls-ca
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

@@ -1,0 +1,7 @@
+# A subject that is one word of 997 characters: it fits a line of its own,
+# of 998 characters with the blank before it, so it goes out as it is,
+# folded onto that line (subject-long-word has a shorter one).
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf 'w%.0s' $(seq 997))")

@@ -1,0 +1,3 @@
+--- check
+refused: Attachment "../etc/passwd": name contains '/' or '\'
+--- application log

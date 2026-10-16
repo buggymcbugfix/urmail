@@ -1,0 +1,8 @@
+# A dyn before the imgs, which the runtime writes as a script element: its
+# text is skipped, not read for tags, and the imgs after it are still
+# looked up and pointed at their images.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Script Body=$'Plain text\n' Html=world Srcs=/logo.png,/chart User=alice Password=secret
+      Markup=script
+      Attach1='image-blob|/chart|chart.png|image/png|not really a png')

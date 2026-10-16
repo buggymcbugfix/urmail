@@ -1,0 +1,6 @@
+# A message made with UrmailFfi's builders, without From, Subject or text:
+# finish records each part missing, and send refuses the message with a
+# fatal error that names them, before anything is sent.  (It used to
+# assemble the message anyway, and crashed on a part that was missing.)
+api=ffi
+form=(To=bob@example.net User=alice Password=secret)

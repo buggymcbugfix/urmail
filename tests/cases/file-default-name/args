@@ -1,0 +1,6 @@
+# A served file attached without a name: it is named by the last segment of
+# its path, as Basis names a served file.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'See attached\n' User=alice Password=secret
+      Attach1='file||/logo.png')

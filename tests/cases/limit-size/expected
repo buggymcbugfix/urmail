@@ -1,0 +1,3 @@
+--- check
+refused: The message: its text, HTML, attachments and images come to 19000001 bytes, more than the 18874368 allowed
+--- application log

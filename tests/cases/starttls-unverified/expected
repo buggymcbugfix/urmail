@@ -1,0 +1,14 @@
+--- status
+Misconfigured: the server's certificate did not verify (SSL peer certificate or SSH remote key was not OK)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: STARTTLS
+S: 220 go ahead
+(TLS established)
+(client closed the connection)
+--- application log

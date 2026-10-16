@@ -1,0 +1,5 @@
+--- status
+Misconfigured: the server URL has credentials in it; give them as User and Password
+--- server
+(no client connected)
+--- application log

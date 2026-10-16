@@ -1,0 +1,5 @@
+# The same recipient in To, Cc and Bcc.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Cc='Bob <bob@example.net>' Bcc=bob@example.net
+      Subject=Hello Body=$'Hi\n' User=alice Password=secret)

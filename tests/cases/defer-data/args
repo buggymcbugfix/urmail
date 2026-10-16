@@ -1,0 +1,5 @@
+# The server reads the message and declines it with 452 (storage short): not
+# sent, for now, although the whole message was uploaded.
+mode=defer-data
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

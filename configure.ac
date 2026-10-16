@@ -67,6 +67,7 @@ AC_SUBST([SHLIB_EXT])
 AC_CONFIG_FILES([
   Makefile
   config.urp
+  tests/config.urp
   urmail.pc
 ])
 

@@ -1,0 +1,11 @@
+# A subject of one letter and 997 blanks, 998 bytes, the most allowed.
+# Blanks that end a value cannot be folded (a line break among them is the
+# obsolete syntax), so the ones that do not fit on the line go out as
+# encoded words of '_', after one blank that stands between the letter
+# and the words: a reader turns the words back into the blanks and keeps
+# that one, which gives the 997.  (subject-leading-blanks has them at the
+# start, where a fold does.)
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="a$(printf ' %.0s' $(seq 997))")

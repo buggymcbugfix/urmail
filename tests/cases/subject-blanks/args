@@ -1,0 +1,6 @@
+# A subject with blanks before, after and between its words, a tab among
+# them: all kept as they are.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject=$'  Hello\tthere  world  ')

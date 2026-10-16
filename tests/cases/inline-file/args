@@ -1,0 +1,6 @@
+# The HTML shows the served logo by its path, as a page in a browser would,
+# and nothing else is said: the file is found by its file directive, sent
+# with the HTML, and the src points at it.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'Plain text\n' Html=world Srcs=/logo.png User=alice Password=secret)

@@ -1,0 +1,10 @@
+# An entry of Images whose url has characters the runtime escapes in an
+# attribute value ('&' and '"'), and one with '<' and '>', which it does
+# not: the src is read as the runtime wrote it, unescaped, and matches the
+# entry as given.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Images Body=$'Plain text\n' Html=world User=alice Password=secret
+      Srcs='/chart?a=1&b="2",/x<y>z'
+      Attach1='image-blob|/chart?a=1&b="2"|c.png|image/png|c'
+      Attach2='image-blob|/x<y>z|d.png|image/png|d')

@@ -1,0 +1,5 @@
+# Display names that need quoting: a comma, and brackets and a quote inside a
+# name given in quotes; and a bare address in brackets, written without them.
+mode=accept
+tls=none
+form=(From='"Doe, John" <john@example.com>' To='<bob@example.net>' Cc='"Ann \"the boss\" <ann>" <ann@example.com>' Subject=Hello Body=$'Hi\n' User=alice Password=secret)

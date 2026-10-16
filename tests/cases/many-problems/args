@@ -1,0 +1,14 @@
+# Everything wrong at once, each problem one line naming the field and the
+# value, in the order found: a From without '@'; a To with a line break,
+# escaped; a Subject over 998 bytes, cut; a MessageId without brackets; an
+# attachment with a slash in its name and a space in its MIME type; an img
+# src no file directive serves, and one served without a MIME type; an
+# entry of Images given twice and used by no img src.
+api=check
+mode=accept
+tls=none
+form=(From=alice To=$'bob\n@example.net' Subject="$(printf 'S%.0s' $(seq 1 2001))" MessageId=nobrackets@example.com
+      Body=x Html=world Srcs=/logo.pgn,/untyped
+      Attach1='blob|a/b.txt|text/x y|x'
+      Attach2='image-blob|/unused|u.png|image/png|u'
+      Attach3='image-blob|/unused|v.png|image/png|v')

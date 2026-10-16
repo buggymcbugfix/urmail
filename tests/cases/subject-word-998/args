@@ -1,0 +1,6 @@
+# A subject that is one word of 998 characters, the most allowed: no line
+# can hold it, so it goes out as encoded words, which fold.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf 'w%.0s' $(seq 998))")

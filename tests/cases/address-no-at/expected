@@ -1,0 +1,3 @@
+--- check
+refused: From "foo": E-mail address has no '@'
+--- application log

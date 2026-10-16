@@ -1,0 +1,8 @@
+# A server whose name does not resolve.  The status is Deferred, as for a
+# connection that fails: a name that does not resolve may be a mistake in
+# the URL, which every send would fail on alike, or the resolver's trouble
+# for now; the library cannot tell them apart and says to try again.
+mode=none
+url=unresolvable
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

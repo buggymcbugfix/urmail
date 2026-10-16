@@ -1,0 +1,4 @@
+# 101 recipients, one more than RFC 5321 says a server must take (section
+# 4.5.3.1.8); a server may refuse the others for now, again and again.
+api=check
+form=(From=alice@example.com Subject=Hello Body=x To="$(for i in $(seq 101); do printf 'r%d@example.net,' $i; done | sed 's/,$//')")

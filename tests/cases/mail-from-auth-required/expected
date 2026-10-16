@@ -1,0 +1,14 @@
+--- status
+Misconfigured: the server wants a login: 530 5.7.0 authentication required (MAIL FROM:<alice@example.com>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: MAIL FROM:<alice@example.com>
+S: 530 5.7.0 authentication required
+C: QUIT
+S: 221 bye
+--- application log

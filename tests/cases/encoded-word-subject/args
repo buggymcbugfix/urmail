@@ -1,0 +1,6 @@
+# A subject in ASCII that has the shape of an RFC 2047 encoded word is
+# encoded, so that a mail client shows the text as given ("=?UTF-8?B?SGVsbG8=?=")
+# rather than what it decodes to ("Hello").
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject='=?UTF-8?B?SGVsbG8=?=' Body=$'Hi\n' User=alice Password=secret)

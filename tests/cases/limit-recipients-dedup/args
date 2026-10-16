@@ -1,0 +1,5 @@
+# 101 addresses that name 100 mailboxes: r1@example.net and r1@EXAMPLE.NET
+# are one, the domain being the same in any case (RFC 5321, section 2.4),
+# so the limit of 100 is kept (limit-recipients has 101 mailboxes).
+api=check
+form=(From=alice@example.com Subject=Hello Body=x To="r1@EXAMPLE.NET,$(for i in $(seq 100); do printf 'r%d@example.net,' $i; done | sed 's/,$//')")

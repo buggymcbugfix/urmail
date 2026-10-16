@@ -1,0 +1,6 @@
+# An empty server URL: libcurl refuses it before connecting anywhere.
+# Misconfigured, since no message can go until the URL is given.
+mode=none
+url=empty
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

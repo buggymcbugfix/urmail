@@ -1,0 +1,6 @@
+# A Message-ID that is not ASCII is refused: RFC 5322 allows only printable
+# ASCII in one, and the library does not negotiate SMTPUTF8, under which
+# a server would take UTF-8.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n'
+      MessageId='<bestellung-ä@example.com>')

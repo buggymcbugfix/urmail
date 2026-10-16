@@ -1,0 +1,11 @@
+# The img srcs a page can have.  /logo.png, a file directive's path, twice:
+# one image.  /chart, an entry of Images.  https://example.com/remote.png,
+# with a scheme and no entry: left as it is.  https://example.com/cdn.png,
+# with an entry giving the served logo with no name: named logo.png, the
+# same image as the first, so sent once.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Images Body=$'Plain text\n' Html=world User=alice Password=secret
+      Srcs=/logo.png,/chart,/logo.png,https://example.com/remote.png,https://example.com/cdn.png
+      Attach1='image-blob|/chart|chart.png|image/png|not really a png'
+      Attach2='image-file|https://example.com/cdn.png||/logo.png')

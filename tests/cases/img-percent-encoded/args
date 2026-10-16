@@ -1,0 +1,9 @@
+# A file directive's path with a character that is not ASCII can only be
+# written percent-encoded: the compiler and bless refuse a url with the
+# character as it is, and a browser sends the path encoded, which the
+# runtime compares with the directives as written.  So the page's src, the
+# directive and the lookup have the same spelling, and match.  The image is
+# named by the path's last segment as written.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Logo Body=$'Plain text\n' Html=world Srcs=/caf%C3%A9.png User=alice Password=secret)

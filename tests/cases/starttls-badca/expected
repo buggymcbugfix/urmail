@@ -1,0 +1,13 @@
+--- status
+Misconfigured: the CA file cannot be used (Problem with the SSL CA cert (path? access rights?))
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: STARTTLS
+S: 220 go ahead
+(TLS handshake failed)
+--- application log

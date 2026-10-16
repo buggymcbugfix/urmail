@@ -1,0 +1,3 @@
+--- check
+refused: Attachment "w.txt": MIME type has a character outside type/subtype
+--- application log

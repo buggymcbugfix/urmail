@@ -1,0 +1,8 @@
+# A subject of 997 blanks and one letter, 998 bytes, the most allowed: the
+# blanks are written as they are, and the value folds before them, onto a
+# line of 998 characters, all that RFC 5322 allows; the blank after the
+# colon is not part of the value and does not move with them.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf ' %.0s' $(seq 997))a")

@@ -1,0 +1,19 @@
+library ..
+mimeTypes mime.types
+file /logo.png logo.png
+# A path with a character that is not ASCII, as it can only be written.
+file /caf%C3%A9.png logo.png
+file /untyped untyped.bin
+allow url /Test/status
+# The img srcs and the urls of Images, which the test application blesses.
+allow url /*
+allow url https://*
+safeGet Test/status
+minHeap 65536
+allow mime text/plain
+allow mime image/png
+
+$/list
+$/string
+$/option
+test

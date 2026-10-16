@@ -1,0 +1,4 @@
+# A Message-ID whose left part has two dots in a row, which RFC 5322's
+# dot-atom does not allow.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' MessageId='<a..b@example.com>')

@@ -1,0 +1,7 @@
+# The server accepts STARTTLS and closes the connection instead of the
+# handshake.  A connection lost in the handshake may be there the next time,
+# and libcurl's result does not tell it from a handshake that failed for
+# good: Deferred.
+mode=starttls-drop
+tls=starttls-ca
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Secret\n' User=alice Password=secret)

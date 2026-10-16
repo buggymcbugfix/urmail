@@ -1,0 +1,5 @@
+# An img src with a query string, as a page adds one to defeat a cache: a
+# browser gets the served file for it, but the lookup is of exactly the
+# src, so the message is refused.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=x Html=world Srcs='/logo.png?v=2')

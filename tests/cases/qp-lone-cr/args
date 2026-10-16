@@ -1,0 +1,7 @@
+# A CR that is not followed by LF, in the text: not a line end, so it is
+# encoded as =0D, as is the first of two CRs before an LF.  (qp-edges has
+# CRLF input, which is a line end.)
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=CR User=alice Password=secret
+      Body=$'lone\rcr\r\r\nend\n')

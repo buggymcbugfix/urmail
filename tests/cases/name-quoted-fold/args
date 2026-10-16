@@ -1,0 +1,7 @@
+# A display name in quotes that is longer than a line: folded inside the
+# quotes, at a blank, which RFC 5322 allows (section 3.2.4), and which a
+# reader undoes.
+mode=accept
+tls=none
+form=(From='"Example Shop GmbH, Customer Service for Orders, Returns and Complaints of all kinds" <shop@example.com>'
+      To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

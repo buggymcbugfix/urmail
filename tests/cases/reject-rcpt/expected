@@ -1,0 +1,20 @@
+--- status
+Refused: 550 no such user (RCPT TO:<nobody@example.net>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<nobody@example.net>
+S: 550 no such user
+C: QUIT
+S: 221 bye
+--- application log

@@ -1,0 +1,10 @@
+--- status
+Misconfigured: the server does not offer STARTTLS (Requested SSL level failed)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+(client closed the connection)
+--- application log

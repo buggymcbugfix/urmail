@@ -1,0 +1,3 @@
+--- check
+refused: Image "/fake": no img src of the page uses it
+--- application log
