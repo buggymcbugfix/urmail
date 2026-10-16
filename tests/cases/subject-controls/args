@@ -1,0 +1,6 @@
+# A subject with a tab, two control characters, DEL, a no-break space and a
+# blank among letters.  The tab stays; the controls, DEL and the no-break
+# space are encoded, with the letters and blank between them.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=$'a\tb\x01c\x7fd e\xc2\xa0f' Body=$'Hi\n' User=alice Password=secret)

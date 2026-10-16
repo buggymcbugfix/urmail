@@ -1,0 +1,9 @@
+# A subject of a word of 996 letters and two blanks.  The word fills the
+# line to 997 with the blank that folds before it, so the blanks go onto
+# the next line as one encoded word of one blank; the fold supplies the
+# other.  A reader decodes both.  (With one blank the line is 998 long,
+# the most allowed, and ends in the blank.)
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf 'w%.0s' $(seq 996))$(printf ' %.0s' $(seq 2))")

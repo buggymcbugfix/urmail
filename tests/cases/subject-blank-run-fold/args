@@ -1,0 +1,8 @@
+# A subject of two words of 70 letters with 21 blanks between them.  The
+# second word does not fit on the first line, so the value folds before the
+# blanks: all 21 go onto the second line, the first of them as the fold,
+# and none is lost.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf 'w%.0s' $(seq 70))$(printf ' %.0s' $(seq 21))$(printf 'w%.0s' $(seq 70))")

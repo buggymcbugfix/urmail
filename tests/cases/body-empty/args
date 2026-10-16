@@ -1,0 +1,4 @@
+# A message with no body: the headers, the empty line and nothing after it.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body= User=alice Password=secret)

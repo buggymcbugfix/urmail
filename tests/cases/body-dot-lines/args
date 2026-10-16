@@ -1,0 +1,7 @@
+# Lines of a body that are a dot, two dots, or begin with a dot, the last
+# line a dot.  libcurl doubles the leading dot on the wire and the server
+# takes it away again, so the message arrives as it was written and the
+# dot that ends it stays the end of the data.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'a\n.\n..\n.b\n.\n' User=alice Password=secret)

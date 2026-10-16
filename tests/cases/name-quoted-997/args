@@ -1,0 +1,7 @@
+# A display name of 995 characters that needs quotes (it has dots), so the
+# quoted string is 997 long: with the blank that folds before it, a line of
+# 998, all that RFC 5322 allows.  It stays a quoted string, on a line of
+# its own.  (name-quoted-998 is one character longer.)
+mode=accept
+tls=none
+form=(From="$(printf 'a.%.0s' $(seq 1 497))a <alice@example.com>" To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)
