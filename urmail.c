@@ -31,6 +31,24 @@ typedef struct address *uw_UrmailFfi_emailAddress;
 // section 2.1.1).
 #define MAX_LINE 998
 
+// A number in a message.
+#define DIGITS(x) #x
+#define NUMBER(x) DIGITS(x)
+
+// Whether s starts with prefix.
+static int starts_with(const char *s, const char *prefix) {
+  return !strncmp(s, prefix, strlen(prefix));
+}
+
+static int starts_with_nocase(const char *s, const char *prefix) {
+  return !strncasecmp(s, prefix, strlen(prefix));
+}
+
+// Whether c is printable ASCII, RFC 5234's VCHAR: no blank, no control.
+static int is_vchar(unsigned char c) {
+  return c > ' ' && c < 0x7F;
+}
+
 // Whether s[0..n) is all ASCII.
 static int is_ascii(const unsigned char *s, size_t n) {
   size_t i;
@@ -99,11 +117,17 @@ static int dot_atom(const char *s, size_t n) {
   return DOT_ATOM_OK;
 }
 
+// The longest addr-spec: the 256 bytes of a path, less its brackets (RFC
+// 5321, section 4.5.3.1.3), and the longest label of a domain (section
+// 4.5.3.1.2).
+#define MAX_ADDR_SPEC 254
+#define MAX_LABEL 63
+
 // What is wrong with an addr-spec, or NULL.  RFC 5321's Mailbox without the
 // quoted local parts and the address literals, which no one types: a local
 // part of atext with single dots between runs, an '@', a domain of labels of
 // letters, digits and inner hyphens joined by dots, all ASCII, the whole at
-// most 254 bytes (the 256 of a path, less the brackets).
+// most MAX_ADDR_SPEC bytes.
 static const char *addr_spec(const char *s) {
   const char *at, *p;
 
@@ -112,8 +136,8 @@ static const char *addr_spec(const char *s) {
   for (p = s; *p; ++p)
     if ((unsigned char)*p >= 0x80)
       return "E-mail address is not ASCII";
-  if (strlen(s) > 254)
-    return "E-mail address is longer than 254 bytes";
+  if (strlen(s) > MAX_ADDR_SPEC)
+    return "E-mail address is longer than " NUMBER(MAX_ADDR_SPEC) " bytes";
   if (!(at = strchr(s, '@')))
     return "E-mail address has no '@'";
   switch (dot_atom(s, at - s)) {
@@ -135,8 +159,8 @@ static const char *addr_spec(const char *s) {
                        : "E-mail address has a character not allowed after the '@'";
     if (*label == '-' || p[-1] == '-')
       return "E-mail address has a '-' at the start or the end of a domain label";
-    if (p - label > 63)
-      return "E-mail address has a domain label longer than 63 characters";
+    if (p - label > MAX_LABEL)
+      return "E-mail address has a domain label longer than " NUMBER(MAX_LABEL) " characters";
     if (!*p)
       return NULL;
     if (*p != '.')
@@ -262,10 +286,6 @@ static size_t addresses_in_order(struct address_list *l, uw_UrmailFfi_emailAddre
 // worth is plenty for a header.
 #define MAX_HEADER_TEXT MAX_LINE
 
-// A number in a message.
-#define DIGITS(x) #x
-#define NUMBER(x) DIGITS(x)
-
 static const char *text_problem(uw_context ctx, const char *s, const char *what) {
   size_t n = strlen(s);
 
@@ -297,7 +317,7 @@ static const char *message_id(uw_context ctx, uw_Basis_string s) {
   const char *at, *right;
 
   for (i = 0; i < n; ++i)
-    if ((unsigned char)s[i] <= ' ' || (unsigned char)s[i] >= 0x7F)
+    if (!is_vchar(s[i]))
       return "Message-ID has a character that is not printable ASCII";
   if (n > MAX_MESSAGE_ID)
     return uw_Basis_mstrcat(ctx, "Message-ID is longer than ", uw_Basis_intToString(ctx, MAX_MESSAGE_ID),
@@ -926,9 +946,12 @@ typedef struct {
   size_t len, cap;
 } buf;
 
+// The room a buffer starts with; it doubles as needed.
+#define BUF_START 1024
+
 static void buf_reserve(uw_context ctx, buf *b, size_t extra) {
   if (b->len + extra + 1 > b->cap) {
-    size_t cap = b->cap ? b->cap : 1024;
+    size_t cap = b->cap ? b->cap : BUF_START;
     while (b->len + extra + 1 > cap)
       cap *= 2;
     char *s = realloc(b->s, cap);
@@ -952,6 +975,13 @@ static void buf_str(uw_context ctx, buf *b, const char *s) {
   buf_append(ctx, b, s, strlen(s));
 }
 
+static const char hex_digits[] = "0123456789ABCDEF";
+
+// The longest line of quoted-printable or base64 (RFC 2045, sections 6.7
+// and 6.8), and the bytes base64 makes such a line of.
+#define ENCODED_LINE 76
+#define BASE64_LINE_BYTES (ENCODED_LINE / 4 * 3)
+
 // A body as quoted-printable (RFC 2045, section 6.7): lines of at most 76
 // characters, CRLF line ends whatever the input had, and as =XX everything
 // outside printable ASCII, '=', a space or tab before a line end, and the
@@ -964,7 +994,6 @@ static void buf_str(uw_context ctx, buf *b, const char *s) {
 // line, and the server removes it again (dot-stuffing, RFC 5321, section
 // 4.5.2).
 static void buf_qp(uw_context ctx, buf *b, const char *s) {
-  static const char hex[] = "0123456789ABCDEF";
   size_t col = 0;
   for (; *s; ++s) {
     unsigned char c = *s;
@@ -977,22 +1006,22 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
       col = 0;
       continue;
     }
-    n = (c >= 33 && c <= 126 && c != '=')
+    n = (is_vchar(c) && c != '=')
         || ((c == ' ' || c == '\t') && s[1] && s[1] != '\n' && !(s[1] == '\r' && s[2] == '\n'))
         ? 1 : 3;
-    if (col + n > 75) {  // room for the soft break's '=' within 76
+    if (col + n > ENCODED_LINE - 1) {  // room for the soft break's "="
       buf_append(ctx, b, "=\r\n", 3);
       col = 0;
     }
     // After the soft break, if any, which may have moved it to the start.
-    if (col == 0 && !strncmp(s, "From ", 5))
+    if (col == 0 && starts_with(s, "From "))
       n = 3;
     if (n == 1)
       enc[0] = c;
     else {
       enc[0] = '=';
-      enc[1] = hex[c >> 4];
-      enc[2] = hex[c & 15];
+      enc[1] = hex_digits[c >> 4];
+      enc[2] = hex_digits[c & 15];
     }
     buf_append(ctx, b, enc, n);
     col += n;
@@ -1099,11 +1128,10 @@ static int is_blank(char c) {
 // for itself, =XX otherwise.  In a display name fewer can stand for
 // themselves (section 5, rule 3).
 static size_t q_byte(unsigned char c, int in_name, char *out) {
-  static const char hex[] = "0123456789ABCDEF";
   int itself = in_name
     ? (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
       || c == '!' || c == '*' || c == '+' || c == '-' || c == '/'
-    : c > ' ' && c < 0x7F && c != '=' && c != '?' && c != '_';
+    : is_vchar(c) && c != '=' && c != '?' && c != '_';
 
   if (c == ' ') {
     out[0] = '_';
@@ -1114,8 +1142,8 @@ static size_t q_byte(unsigned char c, int in_name, char *out) {
     return 1;
   }
   out[0] = '=';
-  out[1] = hex[c >> 4];
-  out[2] = hex[c & 15];
+  out[1] = hex_digits[c >> 4];
+  out[2] = hex_digits[c & 15];
   return 3;
 }
 
@@ -1190,7 +1218,7 @@ static int must_encode(const char *w, size_t n) {
     return 1;
   for (i = 0; i < n; ++i) {
     unsigned char c = w[i];
-    if (c <= ' ' || c >= 0x7F || (c == '=' && i + 1 < n && w[i+1] == '?'))
+    if (!is_vchar(c) || (c == '=' && i + 1 < n && w[i+1] == '?'))
       return 1;
   }
   return 0;
@@ -1371,47 +1399,54 @@ static void header_address_list(header_out *h, struct address_list *l) {
 
 // The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
 // follow the locale.
-static void date_header(char out[64]) {
+static void date_header(char *out, size_t n) {
   static const char *days[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
   static const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
   time_t now = time(NULL);
   struct tm tm;
   gmtime_r(&now, &tm);
-  snprintf(out, 64, "%s, %d %s %d %02d:%02d:%02d +0000",
+  snprintf(out, n, "%s, %d %s %d %02d:%02d:%02d +0000",
            days[tm.tm_wday], tm.tm_mday, months[tm.tm_mon], tm.tm_year + 1900,
            tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
+
+// The random bytes of a generated Message-ID, 96 bits, and the room for
+// what goes before its '@': the bytes in hex, or else the time, the
+// process and a counter, each up to 16 hex digits, between dots.
+#define MESSAGE_ID_RANDOM 12
+#define MESSAGE_ID_UNIQUE (2 * MESSAGE_ID_RANDOM > 3 * 16 + 2 ? 2 * MESSAGE_ID_RANDOM : 3 * 16 + 2)
 
 // A Message-ID unique enough: random bytes, or if the system will not give
 // any, the time, the process and a counter; at the domain of the From
 // address, which parse_address made sure is there.
 static void generate_message_id(uw_UrmailFfi_emailAddress from, char *out, size_t n) {
-  unsigned char r[12];
-  char hex[25];
+  unsigned char r[MESSAGE_ID_RANDOM];
+  char unique[MESSAGE_ID_UNIQUE + 1];
   FILE *f = fopen("/dev/urandom", "rb");
   int ok = f && fread(r, 1, sizeof r, f) == sizeof r;
   if (f)
     fclose(f);
   if (ok) {
-    int i;
-    for (i = 0; i < 12; ++i)
-      snprintf(hex + 2*i, 3, "%02x", r[i]);
+    size_t i;
+    for (i = 0; i < sizeof r; ++i)
+      snprintf(unique + 2*i, 3, "%02x", r[i]);
   } else {
     static unsigned counter = 0;
-    snprintf(hex, sizeof hex, "%lx.%x.%x", (long)time(NULL), (unsigned)getpid(), ++counter);
+    snprintf(unique, sizeof unique, "%lx.%x.%x", (unsigned long)time(NULL), (unsigned)getpid(),
+             __atomic_add_fetch(&counter, 1, __ATOMIC_RELAXED));
   }
-  snprintf(out, n, "<%s@%s>", hex, strchr(from->addr, '@') + 1);
+  snprintf(out, n, "<%s@%s>", unique, strchr(from->addr, '@') + 1);
 }
 
 // The bytes as base64 in lines of 76 characters (RFC 2045), CRLF between
 // them and none after the last.
 static void buf_base64_lines(uw_context ctx, buf *b, const unsigned char *s, size_t n) {
   size_t i;
-  for (i = 0; i < n; i += 57) {
+  for (i = 0; i < n; i += BASE64_LINE_BYTES) {
     if (i)
       buf_append(ctx, b, "\r\n", 2);
-    buf_base64(ctx, b, s + i, n - i < 57 ? n - i : 57);
+    buf_base64(ctx, b, s + i, n - i < BASE64_LINE_BYTES ? n - i : BASE64_LINE_BYTES);
   }
 }
 
@@ -1429,14 +1464,13 @@ static void buf_quoted(uw_context ctx, buf *b, const char *s) {
 // A name as the value of filename*= (RFC 2231): UTF-8, percent-encoded but
 // for letters, digits and "-._".
 static void buf_extended(uw_context ctx, buf *b, const char *s) {
-  static const char hex[] = "0123456789ABCDEF";
   buf_str(ctx, b, "UTF-8''");
   for (; *s; ++s) {
     unsigned char c = *s;
     if (isalnum(c) || c == '-' || c == '.' || c == '_')
       buf_append(ctx, b, s, 1);
     else {
-      char enc[3] = {'%', hex[c >> 4], hex[c & 15]};
+      char enc[3] = {'%', hex_digits[c >> 4], hex_digits[c & 15]};
       buf_append(ctx, b, enc, 3);
     }
   }
@@ -1483,7 +1517,7 @@ static void buf_part(uw_context ctx, buf *b, struct part *p, int is_image) {
   // A text type without a charset is US-ASCII (RFC 2046, section 4.1.2).
   // Text in UTF-8 is labelled so; text in another encoding cannot be told
   // from bytes alone, and is left as it is.
-  if (!strncasecmp(p->type, "text/", 5) && !is_ascii(data, p->data.size) && is_utf8(data, p->data.size))
+  if (starts_with_nocase(p->type, "text/") && !is_ascii(data, p->data.size) && is_utf8(data, p->data.size))
     buf_str(ctx, b, "; charset=utf-8");
   buf_str(ctx, b, "\r\n");
   if (is_image) {
@@ -1553,12 +1587,13 @@ static size_t parts_in_order(struct part_list *l, struct part ***out) {
 // multipart/related of the body and those; with attachments, a
 // multipart/mixed of all that and those.
 static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
-  char date[64], message_id[512];
+  char date[sizeof "Thu, 01 Jan 1970 00:00:00 +0000" + 8];  // room for a long year
+  char message_id[sizeof "<@>" + MESSAGE_ID_UNIQUE + MAX_ADDR_SPEC];
   struct part **images, **attached;
   size_t n_images, n_attached, i;
   header_out h;
 
-  date_header(date);
+  date_header(date, sizeof date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
   buf_str(ctx, b, "Date: "); buf_str(ctx, b, date); buf_str(ctx, b, "\r\n");
   if (m->message_id)
@@ -1641,12 +1676,12 @@ static char *unattrify(uw_context ctx, const char *s, size_t n) {
   size_t i = 0;
 
   while (i < n) {
-    if (n - i >= 5 && !strncmp(s + i, "&amp;", 5)) {
+    if (n - i >= sizeof "&amp;" - 1 && starts_with(s + i, "&amp;")) {
       *o++ = '&';
-      i += 5;
-    } else if (n - i >= 6 && !strncmp(s + i, "&quot;", 6)) {
+      i += sizeof "&amp;" - 1;
+    } else if (n - i >= sizeof "&quot;" - 1 && starts_with(s + i, "&quot;")) {
       *o++ = '"';
-      i += 6;
+      i += sizeof "&quot;" - 1;
     } else
       *o++ = s[i++];
   }
@@ -1752,7 +1787,7 @@ static struct part *add_image(uw_context ctx, uw_UrmailFfi_message m, struct par
 // The first "</script", ignoring case, or NULL.
 static const char *script_end(const char *s) {
   for (; (s = strchr(s, '<')); ++s)
-    if (!strncasecmp(s, "</script", 8))
+    if (starts_with_nocase(s, "</script"))
       return s;
   return NULL;
 }
@@ -1852,6 +1887,24 @@ static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m) {
    a time on each, closed when idle for long or when too many are open, and
    an outcome that says what is known. ---- */
 
+// The longest line of SMTP, a command or a reply, with its CRLF (RFC 5321,
+// sections 4.5.3.1.4 and 4.5.3.1.5).
+#define SMTP_LINE 512
+
+// What the trace shows for credentials.
+#define CREDENTIALS "[credentials]"
+
+// Replies that matter here (RFC 5321, section 4.2.3; RFC 4954; RFC 1870):
+// the server wants more of the AUTH exchange; it takes the message's data;
+// it wants a login; the message is too big.  A reply in the 400s is for
+// now, in the 500s for good.
+#define REPLY_AUTH_MORE 334
+#define REPLY_DATA_GO 354
+#define REPLY_LOGIN_NEEDED 530
+#define REPLY_TOO_BIG 552
+#define FOR_NOW 400
+#define FOR_GOOD 500
+
 // What became of a send, as UrmailFfi.sendStatus has it.  (urweb.h has
 // FAILED, so that is not a name for one.)
 typedef enum { SENT, REFUSED, DEFERRED, MAYBE_SENT, MISCONFIGURED } outcome_kind;
@@ -1862,7 +1915,7 @@ typedef struct {
   int code;           // 0: no reply
   char enhanced[16];  // "" when there is none
   char text[1024];    // after the codes, the lines joined by blanks, cut to fit
-  char command[320];  // as sent, credentials left out, or "greeting" or "end of DATA"
+  char command[SMTP_LINE];  // as sent, credentials left out, or "greeting" or "end of DATA"
 } reply;
 
 typedef struct {
@@ -1886,7 +1939,7 @@ static int debugging(void) {
 // What the exchange with the server came to, kept by trace_callback for the
 // status: the last command sent, the last reply, and the reply being read.
 typedef struct {
-  char command[320];  // without the line end; "" before the first
+  char command[SMTP_LINE];  // without the line end; "" before the first
   reply last;         // the last complete reply
   reply partial;      // the reply being read, until its last line
   int in_auth;        // the AUTH exchange is on: what goes out is credentials
@@ -1977,7 +2030,7 @@ static void reply_line(trace *t, const char *line) {
 // message itself is never printed.
 static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t size, void *userp) {
   trace *t = userp;
-  char line[1024];
+  char line[SMTP_LINE];
   (void)curl;
 
   switch (type) {
@@ -1988,14 +2041,15 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
   case CURLINFO_HEADER_OUT:
     if (t->in_auth) {
       if (debugging())
-        fputs("> [credentials]\n", stderr);
+        fputs("> " CREDENTIALS "\n", stderr);
       break;
     }
     trace_line(t->command, sizeof t->command, data, size);
-    if (!strncmp(t->command, "AUTH ", 5)) {
-      char *ir = strchr(t->command + 5, ' ');
-      if (ir && ir - t->command + 15 < (long)sizeof t->command)
-        strcpy(ir, " [credentials]");
+    if (starts_with(t->command, "AUTH ")) {
+      // The credentials after the mechanism, if any, are left out.
+      char *ir = strchr(t->command + sizeof "AUTH " - 1, ' ');
+      if (ir && (size_t)(ir - t->command) + sizeof " " CREDENTIALS <= sizeof t->command)
+        strcpy(ir, " " CREDENTIALS);
       t->in_auth = 1;
     }
     if (debugging())
@@ -2005,9 +2059,9 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
     trace_line(line, sizeof line, data, size);
     reply_line(t, line);
     if (!t->partial.code) {  // a reply is complete
-      if (t->in_auth && t->last.code != 334)
+      if (t->in_auth && t->last.code != REPLY_AUTH_MORE)
         t->in_auth = 0;
-      if (t->last.code == 354 && !strcmp(t->command, "DATA"))
+      if (t->last.code == REPLY_DATA_GO && !strcmp(t->command, "DATA"))
         strcpy(t->command, "end of DATA");  // what the next reply answers
     }
     if (debugging())
@@ -2023,9 +2077,9 @@ static int trace_callback(CURL *curl, curl_infotype type, char *data, size_t siz
 typedef enum { SESSION, MAIL, RECIPIENT, DATA } stage;
 
 static stage stage_of(const reply *r) {
-  if (!strncmp(r->command, "MAIL FROM", 9))
+  if (starts_with(r->command, "MAIL FROM"))
     return MAIL;
-  if (!strncmp(r->command, "RCPT TO", 7))
+  if (starts_with(r->command, "RCPT TO"))
     return RECIPIENT;
   if (!strcmp(r->command, "DATA") || !strcmp(r->command, "end of DATA"))
     return DATA;
@@ -2050,15 +2104,16 @@ static void judge_reply(const reply *r, outcome *o) {
   stage s = stage_of(r);
 
   o->reply = *r;
-  if (r->code == 530 || (r->code >= 500 && (s == MAIL || s == RECIPIENT) && !strcmp(r->enhanced, "5.7.0")))
+  if (r->code == REPLY_LOGIN_NEEDED
+      || (r->code >= FOR_GOOD && (s == MAIL || s == RECIPIENT) && !strcmp(r->enhanced, "5.7.0")))
     decided(o, MISCONFIGURED, "the server wants a login", NULL);
-  else if (r->code >= 500 && s == SESSION)
-    decided(o, MISCONFIGURED, !strncmp(r->command, "AUTH", 4) ? "the server refused the login"
+  else if (r->code >= FOR_GOOD && s == SESSION)
+    decided(o, MISCONFIGURED, starts_with(r->command, "AUTH") ? "the server refused the login"
                               : !strcmp(r->command, "STARTTLS") ? "the server refused TLS"
                               : "the server refused the session", NULL);
-  else if (r->code >= 500 && s == MAIL && r->code != 552)
+  else if (r->code >= FOR_GOOD && s == MAIL && r->code != REPLY_TOO_BIG)
     decided(o, MISCONFIGURED, "the server refused the sender", NULL);
-  else if (r->code >= 500)
+  else if (r->code >= FOR_GOOD)
     decided(o, REFUSED, "", NULL);
   else
     decided(o, DEFERRED, "the server declined for now", NULL);
@@ -2099,21 +2154,27 @@ static void judge_error(CURLcode res, int all_sent, outcome *o) {
 
 // Seconds without progress (connecting, or waiting for the server) after
 // which a send is given up, and for how long an idle connection is kept:
-// URMAIL_TIMEOUT, a whole number of seconds from 1 to 86400, or 100.
-// Anything else gets one line on stderr and the default; the range keeps
-// the arithmetic on it (10 * t for the hard cap) in bounds.
+// URMAIL_TIMEOUT, a whole number of seconds from 1 to TIMEOUT_MAX, or
+// TIMEOUT_DEFAULT.  Anything else gets one line on stderr and the default.
+// The range keeps the arithmetic on it in bounds: the hard cap on a whole
+// send, HARD_CAP times as long, and the milliseconds of the idle limit.
+#define TIMEOUT_DEFAULT 100
+#define TIMEOUT_MAX 86400
+#define HARD_CAP 10
+
 static long timeout_seconds(void) {
   static long t = -1;
   if (t < 0) {
     const char *v = getenv("URMAIL_TIMEOUT");
-    long n = 100;
+    long n = TIMEOUT_DEFAULT;
     if (v && *v) {
       char *end;
       errno = 0;
       n = strtol(v, &end, 10);
-      if (errno || *end || n < 1 || n > 86400) {
-        fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to 86400; using 100\n", v);
-        n = 100;
+      if (errno || *end || n < 1 || n > TIMEOUT_MAX) {
+        fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to " NUMBER(TIMEOUT_MAX)
+                        "; using " NUMBER(TIMEOUT_DEFAULT) "\n", v);
+        n = TIMEOUT_DEFAULT;
       }
     }
     t = n;
@@ -2345,7 +2406,7 @@ static CURLcode attempt(smtp_conn *c, job *j, struct curl_slist *recipients,
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
   curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
   curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, timeout);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10 * timeout);  // the hard cap, for a stalling server
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, HARD_CAP * timeout);  // for a server that stalls
   if (fresh)
     curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
 
@@ -2467,7 +2528,7 @@ static void deliver(job *j, outcome *o) {
     DBG("failed: %s (last reply %d, %zu of %zu bytes not sent, %ld new connections)",
         curl_easy_strerror(res), t.last.code, up.length, j->length, connects);
 
-    if (t.last.code >= 400) {
+    if (t.last.code >= FOR_NOW) {
       judge_reply(&t.last, o);
       break;
     }
