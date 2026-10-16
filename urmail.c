@@ -1959,14 +1959,19 @@ typedef struct {
   char detail[1024];  // what else is known, or what libcurl said
 } outcome;
 
-// Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or "0".
+// Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or
+// "0". Read once, when the first thread asks.
+static int debug_state;
+static pthread_once_t debug_once = PTHREAD_ONCE_INIT;
+
+static void read_debug(void) {
+  const char *v = getenv("URMAIL_DEBUG");
+  debug_state = v && *v && strcmp(v, "0") != 0;
+}
+
 static int debugging(void) {
-  static int state = -1;
-  if (state < 0) {
-    const char *v = getenv("URMAIL_DEBUG");
-    state = v && *v && strcmp(v, "0") != 0;
-  }
-  return state;
+  pthread_once(&debug_once, read_debug);
+  return debug_state;
 }
 
 #define DBG(...) do { if (debugging()) { fprintf(stderr, "urmail: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
@@ -2173,24 +2178,30 @@ static void judge_reply(const reply *r, outcome *o) {
 // send is needed.  Any link that can carry mail does far better.
 #define MIN_UPLOAD_RATE 1024
 
-static long timeout_seconds(void) {
-  static long t = -1;
-  if (t < 0) {
-    const char *v = getenv("URMAIL_TIMEOUT");
-    long n = TIMEOUT_DEFAULT;
-    if (v && *v) {
-      char *end;
-      errno = 0;
-      n = strtol(v, &end, 10);
-      if (errno || !isdigit((unsigned char)*v) || *end || n < 1 || n > TIMEOUT_MAX) {
-        fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to " NUMBER(TIMEOUT_MAX)
-                        "; using " NUMBER(TIMEOUT_DEFAULT) "\n", v);
-        n = TIMEOUT_DEFAULT;
-      }
+// Read once, when the first thread asks.
+static long timeout_value;
+static pthread_once_t timeout_once = PTHREAD_ONCE_INIT;
+
+static void read_timeout(void) {
+  const char *v = getenv("URMAIL_TIMEOUT");
+  long n = TIMEOUT_DEFAULT;
+
+  if (v && *v) {
+    char *end;
+    errno = 0;
+    n = strtol(v, &end, 10);
+    if (errno || !isdigit((unsigned char)*v) || *end || n < 1 || n > TIMEOUT_MAX) {
+      fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to " NUMBER(TIMEOUT_MAX)
+                      "; using " NUMBER(TIMEOUT_DEFAULT) "\n", v);
+      n = TIMEOUT_DEFAULT;
     }
-    t = n;
   }
-  return t;
+  timeout_value = n;
+}
+
+static long timeout_seconds(void) {
+  pthread_once(&timeout_once, read_timeout);
+  return timeout_value;
 }
 
 // Whether libcurl's text for a failed TLS handshake says that the connection
