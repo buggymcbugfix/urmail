@@ -39,8 +39,16 @@
 # library.  Everything the run makes lands under the build tree's tests/out:
 # copies of the application and the examples, whose lib.urp names the
 # sources and the library by absolute path, so that a build tree apart from
-# the source tree works and nothing is written into the source tree.  Exit
-# status: 0 every case passed, 1 some failed, 2 could not run.
+# the source tree works and nothing is written into the source tree.
+#
+# Every case starts from nothing: its own directory under tests/out, its own
+# server and application, which are stopped when it ends, however it ends.
+# Every wait has a limit (below).  A case passes when its transcript is the
+# golden one; it fails when the transcript differs, when the application
+# exits during the case, or when a request is not answered with 200; it
+# could not run when its server or application did not start.  Exit
+# status: 0 every case passed, 1 some failed, 2 some could not run (or the
+# run itself could not: a tool missing, the application not building).
 
 set -u
 
@@ -51,12 +59,21 @@ out=$build/tests/out
 urweb=${URWEB:-urweb}
 urweb_flags=${URWEB_FLAGS:-}
 
+# The limits on the waits, in seconds: for the server and the application
+# to start; for a request to be answered; for the statuses to be recorded
+# after the last request (what has been recorded by then is what the case
+# shows); for a process told to stop to exit, before it is killed.
+start_limit=30
+request_limit=60
+status_limit=60
+stop_limit=10
+
 update=0
 if [ "${1:-}" = "-u" ]; then update=1; shift; fi
 
 die() { echo "run.sh: $*" >&2; exit 2; }
 
-for tool in python3 openssl curl sqlite3; do
+for tool in python3 openssl curl sqlite3 timeout; do
   command -v "$tool" >/dev/null || die "$tool is needed"
 done
 command -v "$urweb" >/dev/null || die "no urweb: set URWEB or put it on the PATH"
@@ -68,6 +85,43 @@ else
   cases=()
   for d in "$here"/cases/*/; do cases+=("$(basename "$d")"); done
 fi
+
+# Whether process $1 is still running.  The application is a daemon whose
+# parent has exited, and a container's init need not reap it once it exits:
+# kill -0 then still succeeds, so a zombie counts as gone where /proc
+# shows it.
+running() {
+  kill -0 "$1" 2>/dev/null || return 1
+  [ -r "/proc/$1/stat" ] || return 0
+  case $(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null) in
+    Z*) return 1 ;;
+  esac
+  return 0
+}
+
+# Stop process $1: SIGTERM, and SIGKILL if it is still running after
+# stop_limit seconds.
+stop() {
+  local i
+  kill -TERM "$1" 2>/dev/null || return 0
+  for ((i = 0; i < stop_limit * 10; ++i)); do
+    running "$1" || return 0
+    sleep 0.1
+  done
+  echo "run.sh: process $1 is still running after SIGTERM; killing it" >&2
+  kill -KILL "$1" 2>/dev/null
+}
+
+# The current case's server and application, stopped when the case ends,
+# and by the trap when the run is interrupted.
+srv_pid=
+app_pid=
+stop_case() {
+  if [ -n "$app_pid" ]; then stop "$app_pid"; app_pid=; fi
+  if [ -n "$srv_pid" ]; then stop "$srv_pid"; wait "$srv_pid" 2>/dev/null; srv_pid=; fi
+}
+trap stop_case EXIT
+trap 'exit 2' HUP INT TERM
 
 rm -rf "$out"
 mkdir -p "$out"
@@ -106,21 +160,67 @@ normalize() {
       "$1"
 }
 
+# Pages as text: one line per <br />, without the markup and escaping.
+text() { sed -e 's#<br />#\n#g' -e 's#<[^>]*>##g' -e 's#&lt;#<#g' -e 's#&gt;#>#g' -e 's#&amp;#\&#g' "$1" | grep -v '^$'; }
+
 failed=0
-for case in "${cases[@]}"; do
-  dir=$here/cases/$case
-  [ -f "$dir/args" ] || { echo "$case: no args file" >&2; failed=1; continue; }
-  mode=accept; tls=none; form=(); sends=1; pause=0; api=io; url=smtp; app_env=(); logfilter=
+broken=0
+# The verdicts other than ok.  Each case reports at most one.
+case_failed() { echo "$case: FAILED: $*" >&2; failed=1; }
+cannot_run() { echo "$case: could not run: $*" >&2; broken=1; }
+
+# What became of a request, by curl's %{http_code}.
+answered() {
+  if [ "$1" = 000 ]; then echo "got no answer"; else echo "was answered with HTTP $1"; fi
+}
+
+# Wait for process $2 to write file $1, at most start_limit seconds.
+wait_for_file() {
+  local i
+  for ((i = 0; i < start_limit * 20; ++i)); do
+    [ -s "$1" ] && return 0
+    running "$2" || break
+    sleep 0.05
+  done
+  [ -s "$1" ]
+}
+
+run_case() {
+  local case=$1
+  local dir=$here/cases/$1 work=$out/$1
+  local mode=accept tls=none sends=1 pause=0 api=io url=smtp logfilter=
+  local -a form=() app_env=()
+  local ca server handler smtp_port app_port f v kv code i n deadline
+  local -a srv_args curl_args
+
+  [ -f "$dir/args" ] || { cannot_run "no args file"; return; }
   # shellcheck disable=SC1090
   . "$dir/args"
-  work=$out/$case
+
+  case $tls in
+    none|starttls|starttls-noverify) ca= ;;
+    starttls-ca) ca=$out/cert.pem ;;
+    *) cannot_run "unknown tls setting $tls"; return ;;
+  esac
+  case $url in
+    smtp|smtps|bare|http) ;;
+    *) cannot_run "unknown url form $url"; return ;;
+  esac
+  case $api in
+    io) handler=queue ;;
+    check) handler=check ;;
+    *) cannot_run "unknown api $api"; return ;;
+  esac
+
+  # A directory of its own, emptied: nothing of an earlier run, or of an
+  # earlier case of the same name, can make it pass.
+  rm -rf "$work"
   mkdir -p "$work"
 
   # The server, with STARTTLS on offer unless the case says otherwise; or,
   # with mode=none, no server: a port nothing listens on.  A check sends
   # nothing, so it has no server either.
   if [ "$mode" = none ] || [ "$api" = check ]; then
-    srv_pid=
     smtp_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
     echo "(no server)" > "$work/transcript"
   else
@@ -128,33 +228,37 @@ for case in "${cases[@]}"; do
     [ "$mode" != no-starttls ] && srv_args+=(--cert "$out/cert.pem" --key "$out/key.pem")
     python3 "$here/smtpd.py" "${srv_args[@]}" 2> "$work/smtpd.err" &
     srv_pid=$!
-    for _ in $(seq 100); do [ -s "$work/port" ] && break; sleep 0.05; done
-    [ -s "$work/port" ] || { echo "$case: the fake server did not start" >&2; cat "$work/smtpd.err" >&2; failed=1; continue; }
+    if ! wait_for_file "$work/port" "$srv_pid"; then
+      cannot_run "the fake server did not start"; cat "$work/smtpd.err" >&2; stop_case; return
+    fi
     smtp_port=$(cat "$work/port")
   fi
 
   # The application, fresh for every case so that its log and its queue are
-  # the case's.  -d3 prints pid=, port= and status= on fd 3 once it listens.
+  # the case's.  -d3 writes pid=, port= and status= on fd 3 once it listens,
+  # and the process that was started exits, leaving the server running.
   sqlite3 "$work/app.db" < "$out/app.sql" >/dev/null   # a PRAGMA in there prints its value
-  eval "$( env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" "$out/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3>&1 1>/dev/null 2> "$work/app.log" )"
-  if [ "${status:-}" != OK ]; then
-    echo "$case: the test application did not start" >&2; cat "$work/app.log" >&2; failed=1; [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null; continue
+  timeout "$start_limit" env URMAIL_TIMEOUT=2 URWEB_SQLITE_DB_PATH="$work/app.db" "${app_env[@]}" \
+    "$out/app/test.exe" -a 127.0.0.1 -p 8000 -P 9000 -d3 3> "$work/handshake" > /dev/null 2> "$work/app.log"
+  code=$?
+  app_pid=$(sed -n 's/^pid=\([0-9][0-9]*\)$/\1/p' "$work/handshake")
+  app_port=$(sed -n 's/^port=\([0-9][0-9]*\)$/\1/p' "$work/handshake")
+  if [ "$code" != 0 ] || ! grep -qx "status='OK'" "$work/handshake" || [ -z "$app_pid" ] || [ -z "$app_port" ]; then
+    if [ "$code" = 124 ]; then
+      cannot_run "the test application did not start within $start_limit s"
+    else
+      cannot_run "the test application did not start"
+    fi
+    cat "$work/app.log" >&2; stop_case; return
   fi
-  app_pid=$pid; app_port=$port
 
-  case $tls in
-    none|starttls|starttls-noverify) ca= ;;
-    starttls-ca) ca=$out/cert.pem ;;
-    *) die "$case: unknown tls setting $tls" ;;
-  esac
   case $url in
     smtp) server="smtp://127.0.0.1:$smtp_port" ;;
     smtps) server="smtps://127.0.0.1:$smtp_port" ;;
     bare) server="127.0.0.1:$smtp_port" ;;
     http) server="http://127.0.0.1:$smtp_port" ;;
-    *) die "$case: unknown url form $url" ;;
   esac
-  curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time 120
+  curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time "$request_limit"
              --data-urlencode "Server=$server"
              --data-urlencode "Tls=$tls" --data-urlencode "Ca=$ca")
   for f in From To Cc Bcc Subject Body Html Srcs User Password MessageId UserAgent Attach1 Attach2 Attach3; do
@@ -164,34 +268,49 @@ for case in "${cases[@]}"; do
     done
     curl_args+=(--data-urlencode "$f=$v")
   done
-  case $api in
-    io) handler=queue ;;
-    check) handler=check ;;
-    *) die "$case: unknown api $api" ;;
-  esac
-  http=
-  for i in $(seq "$sends"); do
+  for ((i = 1; i <= sends; ++i)); do
     [ "$i" -gt 1 ] && [ "$pause" != 0 ] && sleep "$pause"
-    http="$http$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler") "
+    code=$(curl "${curl_args[@]}" "http://127.0.0.1:$app_port/Test/$handler")
+    if [ "$code" != 200 ]; then
+      case_failed "request $i $(answered "$code")"; cat "$work/app.log" >&2; stop_case; return
+    fi
   done
   if [ "$api" = io ]; then
     # The task sends within a second of the request; wait for as many
     # statuses as there were requests (a hung server takes the timeout).
-    for _ in $(seq 300); do
-      curl -s -o "$work/status" "http://127.0.0.1:$app_port/Test/status"
-      [ "$(grep -o '<br />' "$work/status" | wc -l)" -ge "$sends" ] && break
+    deadline=$((SECONDS + status_limit))
+    while running "$app_pid"; do
+      code=$(curl -s -o "$work/status" -w '%{http_code}' --max-time "$request_limit" \
+                  "http://127.0.0.1:$app_port/Test/status")
+      if [ "$code" != 200 ]; then
+        case_failed "the status request $(answered "$code")"; cat "$work/app.log" >&2; stop_case; return
+      fi
+      n=$(grep -o '<br />' "$work/status" | wc -l)
+      [ "$n" -ge "$sends" ] || [ "$SECONDS" -ge "$deadline" ] && break
       sleep 0.1
     done
+  fi
+  if ! running "$app_pid"; then
+    app_pid=
+    case_failed "the application exited during the case"; cat "$work/app.log" >&2; stop_case; return
   fi
 
   # The application first: it keeps the connection open for the next message,
   # and the server's session ends when it goes.  Then the server, which no
-  # client can come to any more: it ends as if its wait had timed out.
-  kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null
-  [ -n "$srv_pid" ] && { kill -TERM "$srv_pid" 2>/dev/null; wait "$srv_pid"; }
+  # client can come to any more: it ends as if its wait had timed out, and
+  # writes its transcript.
+  stop "$app_pid"
+  app_pid=
+  if [ -n "$srv_pid" ]; then
+    stop "$srv_pid"
+    wait "$srv_pid"
+    code=$?
+    srv_pid=
+    if [ "$code" != 0 ]; then
+      cannot_run "the fake server failed (exit status $code)"; cat "$work/smtpd.err" >&2; return
+    fi
+  fi
 
-  # Pages as text: one line per <br />, without the markup and escaping.
-  text() { sed -e 's#<br />#\n#g' -e 's#<[^>]*>##g' -e 's#&lt;#<#g' -e 's#&gt;#>#g' -e 's#&amp;#\&#g' "$1" | grep -v '^$'; }
   {
     if [ "$api" = io ]; then
       echo "--- status"
@@ -214,12 +333,17 @@ for case in "${cases[@]}"; do
     cp "$work/actual" "$dir/expected"
     echo "$case: updated"
   elif [ ! -f "$dir/expected" ]; then
-    echo "$case: no expected file (run with -u to create it)" >&2; failed=1
+    case_failed "no expected file (run with -u to create it)"
   elif diff -u "$dir/expected" "$work/actual" > "$work/diff"; then
     echo "$case: ok"
   else
-    echo "$case: FAILED" >&2; cat "$work/diff" >&2; failed=1
+    case_failed "the transcript differs"; cat "$work/diff" >&2
   fi
+}
+
+for c in "${cases[@]}"; do
+  run_case "$c"
 done
 
+[ $broken = 1 ] && exit 2
 exit $failed

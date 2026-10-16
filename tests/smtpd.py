@@ -53,6 +53,7 @@ offered unless the mode says otherwise; anything else is refused."""
 
 import argparse
 import base64
+import os
 import signal
 import socket
 import ssl
@@ -252,16 +253,13 @@ def main():
     lsock.listen(1)
     lsock.settimeout(args.timeout)
     port = lsock.getsockname()[1]
-    if args.port_file:
-        with open(args.port_file, "w") as f:
-            f.write("%d\n" % port)
-    else:
-        print(port, flush=True)
 
     # SIGTERM, which the runner sends once the application is gone: no client
     # is coming any more.  While waiting for one, that ends the server as the
     # timeout would; during a session, it ends the server once the session
-    # is over, which it is as soon as the client's end is closed.
+    # is over, which it is as soon as the client's end is closed.  The
+    # handler is in place before the port is announced, since the runner may
+    # send SIGTERM as soon as it knows the port.
     class Stopped(Exception):
         pass
 
@@ -273,6 +271,12 @@ def main():
             raise Stopped()
 
     signal.signal(signal.SIGTERM, stop)
+
+    if args.port_file:
+        with open(args.port_file, "w") as f:
+            f.write("%d\n" % port)
+    else:
+        print(port, flush=True)
 
     transcript = []
     for n in range(args.sessions):
@@ -308,6 +312,11 @@ def main():
                 pass
     with open(args.transcript, "w") as f:
         f.write("\n".join(transcript) + "\n")
+    # Exit now, not through Python's exit, which restores the default action
+    # of SIGTERM before it is done: a SIGTERM from the runner in that window
+    # would end the process with a status that says it was killed.
+    sys.stdout.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
