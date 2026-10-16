@@ -28,7 +28,8 @@
 #               part is the statuses the task recorded, or what
 #               Urmail.message said)
 #   expected    the transcript: the statuses or Urmail.message's verdict,
-#               the server's transcript, then the application's log
+#               the server's transcript (not with api=check, which starts no
+#               server), then the application's log
 #
 # The compiler is the one URWEB names, run with the flags in URWEB_FLAGS if
 # set, or else `urweb` on the PATH.  Needs python3, openssl, curl and sqlite3
@@ -116,8 +117,9 @@ for case in "${cases[@]}"; do
   mkdir -p "$work"
 
   # The server, with STARTTLS on offer unless the case says otherwise; or,
-  # with mode=none, no server: a port nothing listens on.
-  if [ "$mode" = none ]; then
+  # with mode=none, no server: a port nothing listens on.  A check sends
+  # nothing, so it has no server either.
+  if [ "$mode" = none ] || [ "$api" = check ]; then
     srv_pid=
     smtp_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
     echo "(no server)" > "$work/transcript"
@@ -183,9 +185,10 @@ for case in "${cases[@]}"; do
   fi
 
   # The application first: it keeps the connection open for the next message,
-  # and the server's session ends when it goes.
+  # and the server's session ends when it goes.  Then the server, which no
+  # client can come to any more: it ends as if its wait had timed out.
   kill "$app_pid" 2>/dev/null; wait "$app_pid" 2>/dev/null
-  [ -n "$srv_pid" ] && wait "$srv_pid"
+  [ -n "$srv_pid" ] && { kill -TERM "$srv_pid" 2>/dev/null; wait "$srv_pid"; }
 
   # Pages as text: one line per <br />, without the markup and escaping.
   text() { sed -e 's#<br />#\n#g' -e 's#<[^>]*>##g' -e 's#&lt;#<#g' -e 's#&gt;#>#g' -e 's#&amp;#\&#g' "$1" | grep -v '^$'; }
@@ -197,8 +200,10 @@ for case in "${cases[@]}"; do
       echo "--- check"
       text "$work/body"
     fi
-    echo "--- server"
-    cat "$work/transcript"
+    if [ "$api" != check ]; then
+      echo "--- server"
+      cat "$work/transcript"
+    fi
     echo "--- application log"
     # libcurl ends the lines of its trace with CRLF.
     if [ -n "$logfilter" ]; then grep -E "$logfilter" "$work/app.log" | tr -d '\r'; else tr -d '\r' < "$work/app.log"; fi

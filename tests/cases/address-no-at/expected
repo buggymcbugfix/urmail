@@ -1,5 +1,3 @@
 --- check
 refused: From "foo": E-mail address has no '@'
---- server
-(no client connected)
 --- application log

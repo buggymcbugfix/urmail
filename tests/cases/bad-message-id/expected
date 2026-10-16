@@ -1,5 +1,3 @@
 --- check
 refused: MessageId "order-42": Message-ID is not of the form <left@right>
---- server
-(no client connected)
 --- application log

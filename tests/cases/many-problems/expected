@@ -9,6 +9,4 @@ img src "/untyped": no MIME type is known for it; give one in its file directive
 Image "/unused": no img src of the page uses it
 Attachment "a/b.txt": name contains '/' or '\'
 Attachment "a/b.txt": MIME type has a character outside type/subtype
---- server
-(no client connected)
 --- application log

@@ -5,7 +5,9 @@
 
 It listens on 127.0.0.1 at a free port, writes the port to --port-file (or
 stdout) once listening, serves one session (--sessions N: up to N, one after
-the other, each headed in the transcript), writes the transcript and exits.  The transcript has one line per command and reply, `C: ...` and
+the other, each headed in the transcript), writes the transcript and exits.
+It waits for a client for --timeout seconds, or until SIGTERM, which says
+that none is coming.  The transcript has one line per command and reply, `C: ...` and
 `S: ...`, and the message as delivered under `MESSAGE:`, one line per CRLF
 line; a CR or LF that is not part of a CRLF shows up as \\r or \\n.  The
 credentials of an AUTH PLAIN are decoded so that they can be read.
@@ -45,6 +47,7 @@ offered; anything else is refused."""
 
 import argparse
 import base64
+import signal
 import socket
 import ssl
 import sys
@@ -246,13 +249,33 @@ def main():
     else:
         print(port, flush=True)
 
+    # SIGTERM, which the runner sends once the application is gone: no client
+    # is coming any more.  While waiting for one, that ends the server as the
+    # timeout would; during a session, it ends the server once the session
+    # is over, which it is as soon as the client's end is closed.
+    class Stopped(Exception):
+        pass
+
+    state = {"waiting": False, "stop": False}
+
+    def stop(signum, frame):
+        state["stop"] = True
+        if state["waiting"]:
+            raise Stopped()
+
+    signal.signal(signal.SIGTERM, stop)
+
     transcript = []
     for n in range(args.sessions):
         if args.sessions > 1:
             transcript.append("--- session %d" % (n + 1))
         try:
+            state["waiting"] = True
+            if state["stop"]:
+                raise Stopped()
             conn, _ = lsock.accept()
-        except socket.timeout:
+            state["waiting"] = False
+        except (socket.timeout, Stopped):
             transcript.append("(no client connected)")
             break
         conn.settimeout(args.timeout)
