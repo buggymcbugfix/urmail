@@ -9,7 +9,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice secret]
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
 S: 235 ok
 C: MAIL FROM:<alice@example.com>
 S: 250 ok
@@ -50,7 +50,7 @@ MESSAGE:
 | QQ==
 | --=_urmail_mixed
 | Content-Type: text/plain
-| Content-Disposition: attachment; filename="\"quoted\" name.txt"
+| Content-Disposition: attachment; filename="\\"quoted\\" name.txt"
 | Content-Transfer-Encoding: base64
 |
 | Qg==

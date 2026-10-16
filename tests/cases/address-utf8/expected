@@ -1,3 +1,3 @@
 --- check
-refused: To "bob@m&#252;ller.example": E-mail address is not ASCII
+refused: To "bob@müller.example": E-mail address is not ASCII
 --- application log

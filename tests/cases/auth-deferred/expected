@@ -9,7 +9,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice secret]
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
 S: 454 4.7.0 temporary authentication failure
 (client closed the connection)
 --- application log

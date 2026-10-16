@@ -9,7 +9,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice secret]
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
 S: 235 ok
 C: MAIL FROM:<john@example.com>
 S: 250 ok
@@ -26,7 +26,7 @@ MESSAGE:
 | From: "Doe, John" <john@example.com>
 | Subject: Hello
 | To: bob@example.net
-| Cc: "Ann \"the boss\" <ann>" <ann@example.com>
+| Cc: "Ann \\"the boss\\" <ann>" <ann@example.com>
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |

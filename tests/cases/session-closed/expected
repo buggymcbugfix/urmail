@@ -11,7 +11,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice secret]
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
 S: 235 ok
 C: MAIL FROM:<alice@example.com>
 S: 250 ok
@@ -42,7 +42,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice secret]
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
 S: 235 ok
 C: MAIL FROM:<alice@example.com>
 S: 250 ok

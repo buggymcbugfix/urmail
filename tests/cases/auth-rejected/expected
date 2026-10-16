@@ -9,7 +9,7 @@ S: 250-8BITMIME
 S: 250 AUTH PLAIN
 C: AUTH PLAIN
 S: 334
-C: [AUTH PLAIN credentials: alice wrong]
+C: [AUTH PLAIN credentials: "" "alice" "wrong"]
 S: 535 5.7.8 authentication failed
 (client closed the connection)
 --- application log

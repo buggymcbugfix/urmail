@@ -206,8 +206,20 @@ normalize() {
       "$1"
 }
 
-# Pages as text: one line per <br />, without the markup and escaping.
-text() { sed -e 's#<br />#\n#g' -e 's#<[^>]*>##g' -e 's#&lt;#<#g' -e 's#&gt;#>#g' -e 's#&amp;#\&#g' "$1" | grep -v '^$'; }
+# Pages as text: one line per <br /> or line break, without the markup and
+# the empty lines, and with the entities decoded, the numeric ones too
+# (the runtime writes a character that is not ASCII as one).
+text() {
+  python3 -c '
+import html, re, sys
+sys.stdout.reconfigure(encoding="utf-8", errors="surrogateescape")
+page = open(sys.argv[1], encoding="utf-8", errors="surrogateescape").read()
+for line in re.split(r"<br />|\n", page):
+    line = html.unescape(re.sub(r"<[^>]*>", "", line))
+    if line:
+        print(line)
+' "$1"
+}
 
 failed=0
 broken=0

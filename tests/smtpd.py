@@ -7,10 +7,15 @@ It listens on 127.0.0.1 at a free port, writes the port to --port-file (or
 stdout) once listening, serves one session (--sessions N: up to N, one after
 the other, each headed in the transcript), writes the transcript and exits.
 It waits for a client for --timeout seconds, or until SIGTERM, which says
-that none is coming.  The transcript has one line per command and reply, `C: ...` and
-`S: ...`, and the message as delivered under `MESSAGE:`, one line per CRLF
-line; a CR or LF that is not part of a CRLF shows up as \\r or \\n.  The
-credentials of an AUTH PLAIN are decoded so that they can be read.
+that none is coming.  The transcript has one line per command and reply,
+`C: ...` and `S: ...`, and the message as delivered under `MESSAGE:`, one
+line per CRLF line, with the leading dot of a line removed, as a server
+undoes dot-stuffing (RFC 5321, section 4.5.2).  What the client sent is
+shown as UTF-8, with a backslash doubled, a CR, LF or other control
+character but a tab as \\r, \\n or \\xNN, and a byte that is not part of
+UTF-8 as \\xNN, so that every line of the transcript is one line of what
+was sent.  The credentials of an AUTH PLAIN are decoded so that they can be
+read: its three fields, each in quotes.
 
 The modes:
 
@@ -59,6 +64,7 @@ import signal
 import socket
 import ssl
 import sys
+import time
 
 CRLF = b"\r\n"
 
@@ -67,6 +73,30 @@ MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data"
          "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
          "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
          "starttls-drop")
+
+
+def escape(data):
+    """What the client sent, as the transcript shows it (see above)."""
+    out = []
+    for ch in data.decode("utf-8", "surrogateescape"):
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\n":
+            out.append("\\n")
+        elif 0xDC80 <= o <= 0xDCFF:  # a byte that is not part of UTF-8
+            out.append("\\x%02X" % (o - 0xDC00))
+        elif (o < 0x20 and ch != "\t") or o == 0x7F:
+            out.append("\\x%02X" % o)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def quoted(data):
+    return '"' + escape(data).replace('"', '\\"') + '"'
 
 
 class Session:
@@ -115,11 +145,9 @@ class Session:
     def log_message(self, body):
         self.log("MESSAGE:")
         for line in body.split(CRLF):
-            text = line.decode("utf-8", "backslashreplace")
-            text = text.replace("\r", "\\r").replace("\n", "\\n")
-            # Dot-stuffing undone, as a real server would.
-            if text.startswith(".."):
-                text = text[1:]
+            if line.startswith(b"."):
+                line = line[1:]
+            text = escape(line)
             self.log("| " + text if text else "|")
         self.log("END")
 
@@ -145,27 +173,29 @@ class Session:
             if line is None:
                 self.log("(client closed the connection)")
                 return
-            cmd = line.decode("utf-8", "backslashreplace")
+            cmd = escape(line)
             verb = cmd.split(" ", 1)[0].upper()
             if verb == "AUTH" and cmd.upper().startswith("AUTH PLAIN"):
                 # Either `AUTH PLAIN <blob>` or `AUTH PLAIN`, 334, then the blob.
-                words = cmd.split(" ", 2)
+                words = line.split(b" ", 2)
                 if len(words) == 3:
                     blob = words[2]
                 else:
                     self.log("C: AUTH PLAIN")
                     self.reply("334 ")
-                    line = self.readline()
-                    if line is None:
+                    blob = self.readline()
+                    if blob is None:
                         self.log("(client closed the connection)")
                         return
-                    blob = line.decode("ascii", "replace")
                 try:
-                    parts = base64.b64decode(blob).split(b"\0")
-                    creds = " ".join(p.decode("utf-8", "backslashreplace") for p in parts[1:])
-                    self.log("C: [AUTH PLAIN credentials: " + creds + "]")
-                except Exception:
-                    self.log("C: " + blob)
+                    fields = base64.b64decode(blob, validate=True).split(b"\0")
+                except ValueError:
+                    fields = []
+                if len(fields) == 3:
+                    # The authorization identity, the user and the password.
+                    self.log("C: [AUTH PLAIN credentials: " + " ".join(quoted(f) for f in fields) + "]")
+                else:
+                    self.log("C: " + escape(blob))
                 self.reply("535 5.7.8 authentication failed" if self.mode == "reject-auth"
                            else "454 4.7.0 temporary authentication failure" if self.mode == "defer-auth"
                            else "235 ok")
@@ -244,9 +274,17 @@ def main():
     ap.add_argument("--cert")
     ap.add_argument("--key")
     ap.add_argument("--port-file")
-    ap.add_argument("--timeout", type=float, default=20.0,
+    def more_than_zero(kind):
+        def check(text):
+            value = kind(text)
+            if not value > 0:
+                raise argparse.ArgumentTypeError("must be more than 0")
+            return value
+        return check
+
+    ap.add_argument("--timeout", type=more_than_zero(float), default=20.0,
                     help="give up waiting for the client after this many seconds")
-    ap.add_argument("--sessions", type=int, default=1,
+    ap.add_argument("--sessions", type=more_than_zero(int), default=1,
                     help="serve up to this many sessions, one after the other")
     args = ap.parse_args()
     if args.list_modes:
@@ -264,26 +302,33 @@ def main():
     lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     lsock.bind(("127.0.0.1", 0))
     lsock.listen(1)
-    lsock.settimeout(args.timeout)
     port = lsock.getsockname()[1]
 
     # SIGTERM, which the runner sends once the application is gone: no client
     # is coming any more.  While waiting for one, that ends the server as the
     # timeout would; during a session, it ends the server once the session
     # is over, which it is as soon as the client's end is closed.  The
-    # handler is in place before the port is announced, since the runner may
-    # send SIGTERM as soon as it knows the port.
-    class Stopped(Exception):
-        pass
+    # handler only notes the signal, and the wait for a client looks at the
+    # note every POLL seconds: an exception raised from the handler could
+    # arrive anywhere, and a signal that arrives just before accept() blocks
+    # does not interrupt it.  The handler is in place before the port is
+    # announced, since the runner may send SIGTERM as soon as it knows the
+    # port.
+    stopping = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: stopping.append(signum))
 
-    state = {"waiting": False, "stop": False}
+    POLL = 0.1
+    lsock.settimeout(POLL)
 
-    def stop(signum, frame):
-        state["stop"] = True
-        if state["waiting"]:
-            raise Stopped()
-
-    signal.signal(signal.SIGTERM, stop)
+    def accept():
+        """A client, or None once SIGTERM or the timeout says none is coming."""
+        deadline = time.monotonic() + args.timeout
+        while not stopping and time.monotonic() < deadline:
+            try:
+                return lsock.accept()[0]
+            except socket.timeout:
+                pass
+        return None
 
     if args.port_file:
         with open(args.port_file, "w") as f:
@@ -295,13 +340,8 @@ def main():
     for n in range(args.sessions):
         if args.sessions > 1:
             transcript.append("--- session %d" % (n + 1))
-        try:
-            state["waiting"] = True
-            if state["stop"]:
-                raise Stopped()
-            conn, _ = lsock.accept()
-            state["waiting"] = False
-        except (socket.timeout, Stopped):
+        conn = accept()
+        if conn is None:
             transcript.append("(no client connected)")
             break
         conn.settimeout(args.timeout)
