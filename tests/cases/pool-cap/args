@@ -1,0 +1,13 @@
+# Nine accounts on one server, one message each, within the idle timeout: a
+# connection each, kept open, but no more than 8 at once.  For the ninth,
+# the connection used least recently, alice1's, is closed first, with
+# QUIT, and its record is forgotten.  The server serves the sessions at the
+# same time.
+mode=accept
+tls=none
+sends=9
+concurrent=1
+vary=User
+app_env=(URMAIL_DEBUG=1)
+logfilter='^urmail: (closing|new connection|forgetting)'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

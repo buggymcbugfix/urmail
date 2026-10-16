@@ -2121,17 +2121,26 @@ static long timeout_seconds(void) {
   return t;
 }
 
+// A connection per server and account.  Its lock is held for the duration
+// of a send on it; conns_lock guards the list of them and what is marked
+// so below.  A thread that needs both takes the connection's first: one
+// that holds conns_lock only ever tries a connection's lock, never waits
+// for it.
 typedef struct smtp_conn {
   char *server, *user, *password, *ca;
   enum uw_UrmailFfi_tls_tag tls;
-  CURL *curl;            // the open connection, or NULL
-  time_t last_used;      // when the last send on it ended
-  pthread_mutex_t lock;  // held for the duration of a send on this connection
+  CURL *curl;            // the open connection, or NULL; under lock
+  int open;              // whether curl is set: written under both locks,
+                         // read under either
+  long long last_used;   // when the last send on it ended, in milliseconds
+                         // of the monotonic clock; under lock
+  int users;             // the threads between get_connection and
+                         // release_connection; under conns_lock
+  pthread_mutex_t lock;
   struct smtp_conn *next;
 } smtp_conn;
 
-// How many connections may be open at once.  Records are never freed, since
-// a thread may be waiting for one's lock; only the connections are closed.
+// How many connections may be open at once.
 #define MAX_OPEN 8
 
 static smtp_conn *conns = NULL;
@@ -2146,36 +2155,87 @@ static int str_eq(const char *a, const char *b) {
   return (a == NULL && b == NULL) || (a && b && !strcmp(a, b));
 }
 
-// Close the connections that have been idle for longer than the timeout
-// and, when more than MAX_OPEN would be open once `next` has one, the least
-// recently used of the others, so that a process that sends on many accounts
-// does not hold a socket per account for its life.  Called with conns_lock
-// held.  A connection in use has its lock held and is left alone; the others
-// are locked while this looks at them.
-static void close_idle(smtp_conn *next) {
-  time_t now = time(NULL);
-  long limit = timeout_seconds();
+// Milliseconds of a clock that only moves forward, whatever is done to the
+// time of day.
+static long long now_ms(void) {
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// Overwrite a secret before its memory is given back.  Through a volatile
+// pointer, so that the compiler does not drop the stores as dead.
+static void wipe(char *s) {
+  volatile char *p = s;
+
+  while (*p)
+    *p++ = 0;
+}
+
+// Mark whether c has a connection.  Called with c's lock held.
+static void set_open(smtp_conn *c, int open) {
+  pthread_mutex_lock(&conns_lock);
+  c->open = open;
+  pthread_mutex_unlock(&conns_lock);
+}
+
+// Free the records that no thread uses and that have no connection.  Called
+// with conns_lock held; a record without users has no thread holding or
+// waiting for its lock.
+static void free_unused(void) {
+  smtp_conn **p = &conns, *c;
+
+  while ((c = *p)) {
+    if (c->users || c->open) {
+      p = &c->next;
+      continue;
+    }
+    *p = c->next;
+    DBG("forgetting the connection record for %s as %s", c->server, c->user);
+    wipe(c->password);
+    free(c->server);
+    free(c->user);
+    free(c->password);
+    free(c->ca);
+    pthread_mutex_destroy(&c->lock);
+    free(c);
+  }
+}
+
+// Take the connections to close off their records: those idle for longer
+// than the timeout and, while more than MAX_OPEN would be open once `next`
+// has one, the least recently used of the others, so that a process that
+// sends on many accounts does not hold a socket per account for its life.
+// Called with conns_lock held.  A connection in use, its lock held, is left
+// alone.  The handles go into `closing` (room for every record), for the
+// caller to clean up once conns_lock is released, since that sends QUIT and
+// waits for the reply; their number is returned.
+static size_t close_idle(smtp_conn *next, CURL **closing) {
+  long long now = now_ms(), limit = timeout_seconds() * 1000LL;
   smtp_conn *c, **idle;
-  size_t n = 0, n_idle = 0, i, oldest;
-  int open = next->curl ? 0 : 1;
+  size_t n = 0, n_idle = 0, n_closing = 0, i, oldest;
+  int open = next->open ? 0 : 1;
 
   for (c = conns; c; c = c->next)
     ++n;
   idle = malloc(n * sizeof *idle);
   for (c = conns; c; c = c->next) {
-    if (!c->curl)
+    if (!c->open)
       continue;
     ++open;
     if (pthread_mutex_trylock(&c->lock))
       continue;  // a send is on
     if (now - c->last_used > limit) {
-      DBG("closing the connection to %s as %s, idle for longer than %ld s", c->server, c->user, limit);
-      curl_easy_cleanup(c->curl);
+      DBG("closing the connection to %s as %s, idle for longer than %ld s", c->server, c->user,
+          timeout_seconds());
+      closing[n_closing++] = c->curl;
       c->curl = NULL;
+      c->open = 0;
       --open;
       pthread_mutex_unlock(&c->lock);
-    } else if (c == next)
-      pthread_mutex_unlock(&c->lock);  // about to be used: not one to evict
+    } else if (c == next || !idle)
+      pthread_mutex_unlock(&c->lock);  // about to be used, or no room to keep it locked
     else
       idle[n_idle++] = c;
   }
@@ -2185,8 +2245,9 @@ static void close_idle(smtp_conn *next) {
         oldest = i;
     c = idle[oldest];
     DBG("closing the connection to %s as %s: %d are open", c->server, c->user, open);
-    curl_easy_cleanup(c->curl);
+    closing[n_closing++] = c->curl;
     c->curl = NULL;
+    c->open = 0;
     --open;
     pthread_mutex_unlock(&c->lock);
     idle[oldest] = idle[--n_idle];
@@ -2194,38 +2255,76 @@ static void close_idle(smtp_conn *next) {
   for (i = 0; i < n_idle; ++i)
     pthread_mutex_unlock(&idle[i]->lock);
   free(idle);
+  return n_closing;
 }
 
-// The connection for this server and account, created on first use.  The
-// libcurl handle keeps the TCP (and TLS) connection open between sends, so a
-// batch of messages does not pay for a handshake and a login each.
+static smtp_conn *new_record(job *j) {
+  smtp_conn *c = calloc(1, sizeof *c);
+
+  if (!c)
+    return NULL;
+  c->server = strdup(j->server);
+  c->user = strdup(j->user);
+  c->password = strdup(j->password);
+  c->ca = j->ca ? strdup(j->ca) : NULL;
+  if (!c->server || !c->user || !c->password || (j->ca && !c->ca)) {
+    if (c->password)
+      wipe(c->password);
+    free(c->server);
+    free(c->user);
+    free(c->password);
+    free(c->ca);
+    free(c);
+    return NULL;
+  }
+  c->tls = j->tls;
+  pthread_mutex_init(&c->lock, NULL);
+  return c;
+}
+
+// The connection for this server and account, created on first use, or
+// NULL when there is no memory for it; release_connection lets it go.  The
+// libcurl handle keeps the TCP (and TLS) connection open between sends, so
+// a batch of messages does not pay for a handshake and a login each.
 static smtp_conn *get_connection(job *j) {
   smtp_conn *c;
+  CURL **closing = NULL;
+  size_t n = 0, n_closing = 0, i;
+
   pthread_once(&curl_once, curl_init);
   pthread_mutex_lock(&conns_lock);
   for (c = conns; c; c = c->next)
     if (!strcmp(c->server, j->server) && !strcmp(c->user, j->user)
         && !strcmp(c->password, j->password) && str_eq(c->ca, j->ca) && c->tls == j->tls)
       break;
-  if (!c) {
-    c = malloc(sizeof(smtp_conn));
-    c->server = strdup(j->server);
-    c->user = strdup(j->user);
-    c->password = strdup(j->password);
-    c->ca = j->ca ? strdup(j->ca) : NULL;
-    c->tls = j->tls;
-    c->curl = NULL;
-    c->last_used = 0;
-    pthread_mutex_init(&c->lock, NULL);
+  if (!c && (c = new_record(j))) {
     c->next = conns;
     conns = c;
     DBG("new connection record for %s as %s", c->server, c->user);
   }
-  close_idle(c);
+  if (c) {
+    smtp_conn *d;
+    ++c->users;
+    for (d = conns; d; d = d->next)  // room in closing for every record
+      ++n;
+    closing = malloc(n * sizeof *closing);
+    if (closing)
+      n_closing = close_idle(c, closing);
+    free_unused();
+  }
   pthread_mutex_unlock(&conns_lock);
+  for (i = 0; i < n_closing; ++i)
+    curl_easy_cleanup(closing[i]);
+  free(closing);
   return c;
 }
 
+static void release_connection(smtp_conn *c) {
+  pthread_mutex_lock(&conns_lock);
+  --c->users;
+  free_unused();
+  pthread_mutex_unlock(&conns_lock);
+}
 
 // One attempt; `fresh` forces a new TCP connection.  `t` records the
 // exchange.
@@ -2316,6 +2415,7 @@ static int has_credentials(const char *url) {
 // idle, so one more attempt is made then, on a fresh connection.
 static void deliver(job *j, outcome *o) {
   smtp_conn *c;
+  CURL *dead = NULL;
   struct curl_slist *recipients = NULL;
   upload_status up;
   trace t;
@@ -2323,22 +2423,25 @@ static void deliver(job *j, outcome *o) {
   int fresh = 0, tries = 0;
   size_t i;
 
+  o->reply.code = 0;
   if (has_credentials(j->server)) {
-    o->reply.code = 0;
     decided(o, MISCONFIGURED, "the server URL has credentials in it; give them as User and Password", NULL);
     return;
   }
-  c = get_connection(j);
+  if (!(c = get_connection(j))) {
+    decided(o, DEFERRED, "out of memory for a connection record", NULL);
+    return;
+  }
   for (i = 0; i < j->n_recipients; ++i)
     recipients = curl_slist_append(recipients, j->recipients[i]);
 
   pthread_mutex_lock(&c->lock);
-  if (!c->curl)
-    c->curl = curl_easy_init();
+  if (!c->curl && (c->curl = curl_easy_init()))
+    set_open(c, 1);
   if (!c->curl) {
     pthread_mutex_unlock(&c->lock);
+    release_connection(c);
     curl_slist_free_all(recipients);
-    o->reply.code = 0;
     decided(o, DEFERRED, "cannot create a libcurl handle", NULL);
     return;
   }
@@ -2378,12 +2481,17 @@ static void deliver(job *j, outcome *o) {
   }
 
   if (res != CURLE_OK) {
-    // Whatever state the connection is in, do not reuse it.
-    curl_easy_cleanup(c->curl);
+    // Whatever state the connection is in, do not reuse it.  It is cleaned
+    // up once the lock is released, since that may send QUIT and wait.
+    dead = c->curl;
     c->curl = NULL;
+    set_open(c, 0);
   }
-  c->last_used = time(NULL);
+  c->last_used = now_ms();
   pthread_mutex_unlock(&c->lock);
+  if (dead)
+    curl_easy_cleanup(dead);
+  release_connection(c);
   curl_slist_free_all(recipients);
 }
 
