@@ -81,7 +81,8 @@ urweb=${URWEB:-urweb}
 case $urweb in
   */*) d=$(cd "$(dirname "$urweb")" 2>/dev/null && pwd) || die "URWEB=$urweb: no such directory"
        urweb=$d/$(basename "$urweb") ;;
-  *) urweb=$(command -v "$urweb") || die "no $urweb on the PATH: set URWEB or put it there" ;;
+  *) found=$(command -v "$urweb") || die "no $urweb on the PATH: set URWEB or put it there"
+     urweb=$found ;;
 esac
 [ -f "$urweb" ] && [ -x "$urweb" ] || die "URWEB=$urweb is not an executable"
 urweb_flags=${URWEB_FLAGS:-}
