@@ -1,0 +1,12 @@
+# A '.' that a soft line break puts at the start of an encoded line.  The
+# encoder encodes a '.' at the start of an input line, "so nothing depends
+# on dot-stuffing", but not one that a soft break moves there: the line
+# ".abc" and the line "." go out as they are, and only libcurl's
+# dot-stuffing keeps the second from ending the DATA.  (The transcript
+# shows the lines with the stuffing undone, as a server reads them.)
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Dots User=alice Password=secret
+      Body="$(printf 'x%.0s' $(seq 75)).abc
+$(printf 'y%.0s' $(seq 75)).
+end")

@@ -1,0 +1,8 @@
+# A text attachment in UTF-8, as an order confirmation attaches its terms:
+# it goes out as text/plain without a charset, which MIME reads as US-ASCII,
+# so a client that follows the label shows the umlaut as two wrong
+# characters.  A charset cannot be given (attachment-text-charset).
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Terms Body=$'See attached\n' User=alice Password=secret
+      Attach1='blob|Widerrufsbelehrung.txt|text/plain|Sie haben das Recht, ohne Angabe von Gründen zu widerrufen.')

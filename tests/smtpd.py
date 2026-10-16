@@ -41,9 +41,15 @@ The modes:
                       serve this client, and the session goes on from there
     defer-auth        every AUTH PLAIN is declined with 454, a temporary
                       failure
+    auth-xoauth2      the only AUTH mechanism offered is XOAUTH2, which
+                      libcurl cannot use with a password
+    auth-required     MAIL FROM is refused with 530, as a submission server
+                      refuses a client that has not logged in
+    starttls-drop     STARTTLS is accepted with 220, and the connection is
+                      closed instead of the TLS handshake
 
-STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is always
-offered; anything else is refused."""
+STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is
+offered unless the mode says otherwise; anything else is refused."""
 
 import argparse
 import base64
@@ -115,7 +121,7 @@ class Session:
                 and self.mode != "no-starttls":
             exts.append("250-STARTTLS")
         exts.append("250-8BITMIME")
-        exts.append("250 AUTH PLAIN")
+        exts.append("250 AUTH XOAUTH2" if self.mode == "auth-xoauth2" else "250 AUTH PLAIN")
         return "\n".join(exts)
 
     def run(self):
@@ -166,6 +172,9 @@ class Session:
                     self.reply("454 TLS not available")
                     continue
                 self.reply("220 go ahead")
+                if self.mode == "starttls-drop":
+                    self.log("(server closed the connection)")
+                    return
                 self.conn = self.sslctx.wrap_socket(self.conn, server_side=True)
                 self.buf = b""
                 self.log("(TLS established)")
@@ -175,7 +184,7 @@ class Session:
                 if self.mode == "drop-on-reuse" and self.messages >= 1:
                     self.log("(server closed the connection)")
                     return
-                self.reply("250 ok")
+                self.reply("530 5.7.0 authentication required" if self.mode == "auth-required" else "250 ok")
             elif verb == "RCPT":
                 if self.mode == "reject-rcpt":
                     self.reply("550 no such user")

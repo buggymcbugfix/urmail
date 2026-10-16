@@ -1,0 +1,5 @@
+# Only a Bcc recipient: no To or Cc header, and the recipient only in the
+# envelope.
+mode=accept
+tls=none
+form=(From=alice@example.com Bcc=eve@example.org Subject=Hello Body=$'Hi\n' User=alice Password=secret)

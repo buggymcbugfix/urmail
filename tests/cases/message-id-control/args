@@ -1,0 +1,6 @@
+# A Message-ID with a control character passes the checks: only a line
+# break is refused, and the byte goes into the header as it is.
+api=check
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' MessageId=$'<a\x01b@example.com>')

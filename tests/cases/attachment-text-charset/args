@@ -1,0 +1,5 @@
+# A text attachment's MIME type cannot carry a charset: the parameter is
+# refused, so a text attachment is always labelled text/plain alone (see
+# attachment-utf8-text).
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=x Attach1='blob|w.txt|text/plain; charset=utf-8|Gründe')
