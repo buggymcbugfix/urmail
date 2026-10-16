@@ -2159,10 +2159,11 @@ static void judge_reply(const reply *r, outcome *o) {
 // connection, for each reply of the server's, and for an upload slower
 // than MIN_UPLOAD_RATE (attempt, below); and for how long an idle
 // connection is kept.  URMAIL_TIMEOUT, a whole number of seconds from 1 to
-// TIMEOUT_MAX, or TIMEOUT_DEFAULT.  Anything else gets one line on stderr
-// and the default.  An hour is the most: a send blocks the io task that
-// makes it for as long as it goes on, and nothing is gained by waiting
-// longer for a server that does not answer.
+// TIMEOUT_MAX, in digits and nothing else, or TIMEOUT_DEFAULT.  Anything
+// else, a blank or a sign in front of the digits included, gets one line
+// on stderr and the default.  An hour is the most: a send blocks the io
+// task that makes it for as long as it goes on, and nothing is gained by
+// waiting longer for a server that does not answer.
 #define TIMEOUT_DEFAULT 100
 #define TIMEOUT_MAX 3600
 
@@ -2181,7 +2182,7 @@ static long timeout_seconds(void) {
       char *end;
       errno = 0;
       n = strtol(v, &end, 10);
-      if (errno || *end || n < 1 || n > TIMEOUT_MAX) {
+      if (errno || !isdigit((unsigned char)*v) || *end || n < 1 || n > TIMEOUT_MAX) {
         fprintf(stderr, "urmail: URMAIL_TIMEOUT=%s is not a number of seconds from 1 to " NUMBER(TIMEOUT_MAX)
                         "; using " NUMBER(TIMEOUT_DEFAULT) "\n", v);
         n = TIMEOUT_DEFAULT;

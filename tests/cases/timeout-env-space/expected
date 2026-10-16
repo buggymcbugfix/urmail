@@ -32,3 +32,4 @@ END
 S: 250 queued
 (client closed the connection)
 --- application log
+urmail: URMAIL_TIMEOUT= 5 is not a number of seconds from 1 to 3600; using 100
