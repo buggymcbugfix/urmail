@@ -1,0 +1,3 @@
+# A Message-ID with nothing before the '@'.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' MessageId='<@example.com>')
