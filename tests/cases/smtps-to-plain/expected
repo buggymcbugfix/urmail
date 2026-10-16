@@ -1,0 +1,6 @@
+--- status
+Deferred: SSL connect error
+--- server
+S: 220 fake.test ESMTP
+(client closed the connection)
+--- application log

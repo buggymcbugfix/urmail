@@ -1,0 +1,12 @@
+# A subject of two letters that are not ASCII and 46 blanks.  The blanks do
+# not fit on the line.  The first is written as a plain blank after the
+# encoded letters, the other 45 as encoded words of '_', 32 on the first
+# line and 13 on the second.  A reader drops a plain blank between two
+# encoded words (RFC 2047, 6.2), so it decodes 45 blanks where the subject
+# has 46.  (With 45 blanks they all fit on the first line, and none is
+# lost.)  The expected file records what the library writes today, not
+# what it should write.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf '\xc3\xa9\xc3\xa9')$(printf ' %.0s' $(seq 46))")

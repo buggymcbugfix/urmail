@@ -1,0 +1,9 @@
+# URMAIL_TIMEOUT=" 5": strtol skips the blank, so the value is taken as
+# 5 seconds without a word, where "5 " is refused (timeout-env).  The
+# expected file records what the library writes today, not what it should
+# write.
+mode=accept
+tls=none
+app_env=("URMAIL_TIMEOUT= 5")
+logfilter='^urmail: URMAIL_TIMEOUT'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -1,0 +1,11 @@
+# A subject of two blanks and 988 letters, 990 bytes.  After "Subject: " it
+# would make a line of 999, so the value folds at the colon.  The line
+# after the fold holds the value as it is, 990 bytes, though 998 would
+# fit.  A reader that takes the first blank after the colon as the
+# separator, as it is when the value does not fold (subject-blanks), gets
+# one blank where the subject has two.  The expected file records what the
+# library writes today, not what it should write.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(printf ' %.0s' $(seq 2))$(printf 'N%.0s' $(seq 988))")

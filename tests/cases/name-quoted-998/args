@@ -1,0 +1,9 @@
+# A display name of 996 characters that needs quotes (it has dots), so the
+# quoted string is 998 long and no longer fits on a line.  It goes out as
+# encoded words, but the quotes are encoded with it: a reader decodes
+# "a.a.a. ... a." with the quote characters in it, where the name has
+# none.  The expected file records what the library writes today, not what
+# it should write.  (name-quoted-997 is one character shorter.)
+mode=accept
+tls=none
+form=(From="$(printf 'a.%.0s' $(seq 1 498)) <alice@example.com>" To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)
