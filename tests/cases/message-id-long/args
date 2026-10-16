@@ -1,7 +1,6 @@
-# A Message-ID of 1000 bytes passes the checks, which allow 2000, and goes
-# out on one line of 1012 characters: longer than the 998 that RFC 5322
-# allows, and a Message-ID cannot be folded.
-mode=accept
-tls=none
-form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret
+# A Message-ID of 1000 bytes is refused: "Message-ID: " and it would make a
+# header line of 1012 characters, over the 998 that RFC 5322 allows, and a
+# Message-ID cannot be folded.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n'
       MessageId="<$(printf 'm%.0s' $(seq 986))@example.com>")

@@ -36,7 +36,10 @@ type message
    - From, To, Cc and Bcc, as [emailAddress] parses them, and a recipient
      among To, Cc and Bcc;
    - Subject and UserAgent: no line break, at most 2000 bytes;
-   - MessageId: "<unique@domain>", without blanks or stray brackets;
+   - MessageId: RFC 5322's "<left@right>": printable ASCII, left of
+     atext and single dots (as an address's local part), right the same
+     or a domain literal in brackets, the whole at most 986 bytes, which
+     fills the header's one line (a Message-ID cannot be folded);
    - each attachment, and each image of HtmlBody;
    - Images: each url at most once, and each used by an img src of the
      page;

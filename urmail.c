@@ -27,10 +27,33 @@ struct address {
 
 typedef struct address *uw_UrmailFfi_emailAddress;
 
+// The longest line a message may have, without its CRLF (RFC 5322,
+// section 2.1.1).
+#define MAX_LINE 998
+
 // The characters of RFC 5322's atext, which a local part is made of (with
 // dots between runs of them) and which a display name may hold unquoted.
 static int is_atext(unsigned char c) {
   return c && (isalnum(c) || strchr("!#$%&'*+-/=?^_`{|}~", c));
+}
+
+// What is wrong with s[0..n) as RFC 5322's dot-atom-text, runs of atext
+// with single dots between them, or DOT_ATOM_OK.
+enum { DOT_ATOM_OK, DOT_ATOM_EMPTY, DOT_ATOM_MISPLACED_DOT, DOT_ATOM_CHARACTER };
+
+static int dot_atom(const char *s, size_t n) {
+  size_t i;
+
+  if (!n)
+    return DOT_ATOM_EMPTY;
+  for (i = 0; i < n; ++i) {
+    if (s[i] == '.') {
+      if (i == 0 || i + 1 == n || s[i+1] == '.')
+        return DOT_ATOM_MISPLACED_DOT;
+    } else if (!is_atext((unsigned char)s[i]))
+      return DOT_ATOM_CHARACTER;
+  }
+  return DOT_ATOM_OK;
 }
 
 // What is wrong with an addr-spec, or NULL.  RFC 5321's Mailbox without the
@@ -50,14 +73,13 @@ static const char *addr_spec(const char *s) {
     return "E-mail address is longer than 254 bytes";
   if (!(at = strchr(s, '@')))
     return "E-mail address has no '@'";
-  if (at == s)
+  switch (dot_atom(s, at - s)) {
+  case DOT_ATOM_EMPTY:
     return "E-mail address has nothing before the '@'";
-  for (p = s; p < at; ++p) {
-    if (*p == '.') {
-      if (p == s || p + 1 == at || p[1] == '.')
-        return "E-mail address has a misplaced dot";
-    } else if (!is_atext((unsigned char)*p))
-      return "E-mail address has a character not allowed before the '@'";
+  case DOT_ATOM_MISPLACED_DOT:
+    return "E-mail address has a misplaced dot";
+  case DOT_ATOM_CHARACTER:
+    return "E-mail address has a character not allowed before the '@'";
   }
   if (!at[1])
     return "E-mail address has nothing after the '@'";
@@ -204,17 +226,55 @@ static const char *header(uw_Basis_string s) {
   return NULL;
 }
 
-static const char *message_id(uw_Basis_string s) {
-  size_t n = strlen(s);
-  const char *p, *e;
+#define MESSAGE_ID_HEADER "Message-ID: "
 
-  if ((e = header(s)))
-    return e;
-  if (n < 3 || s[0] != '<' || s[n-1] != '>' || !strchr(s, '@'))
+// The longest Message-ID: it cannot be folded, so it must fit on the line
+// of its header.
+#define MAX_MESSAGE_ID (MAX_LINE - (sizeof MESSAGE_ID_HEADER - 1))
+
+// What is wrong with a Message-ID, or NULL.  RFC 5322's msg-id without the
+// obsolete forms and the blanks around: '<', a dot-atom-text, '@', a
+// dot-atom-text or a domain literal in brackets, '>'.  All of it is
+// printable ASCII.
+static const char *message_id(uw_context ctx, uw_Basis_string s) {
+  size_t n = strlen(s), i, right_n;
+  const char *at, *right;
+
+  for (i = 0; i < n; ++i)
+    if ((unsigned char)s[i] <= ' ' || (unsigned char)s[i] >= 0x7F)
+      return "Message-ID has a character that is not printable ASCII";
+  if (n > MAX_MESSAGE_ID)
+    return uw_Basis_mstrcat(ctx, "Message-ID is longer than ", uw_Basis_intToString(ctx, MAX_MESSAGE_ID),
+                            " bytes, too long for one header line", NULL);
+  if (n < 2 || s[0] != '<' || s[n-1] != '>' || !(at = memchr(s, '@', n)))
     return "Message-ID is not of the form <left@right>";
-  for (p = s; *p; ++p)
-    if (*p == ' ' || *p == '\t' || (*p == '<' && p != s) || (*p == '>' && p != s + n - 1))
-      return "Message-ID contains a space or a stray bracket";
+  switch (dot_atom(s + 1, at - (s + 1))) {
+  case DOT_ATOM_EMPTY:
+    return "Message-ID has nothing before the '@'";
+  case DOT_ATOM_MISPLACED_DOT:
+    return "Message-ID has a misplaced dot";
+  case DOT_ATOM_CHARACTER:
+    return "Message-ID has a character not allowed before the '@'";
+  }
+  right = at + 1;
+  right_n = s + n - 1 - right;
+  if (right_n && right[0] == '[') {
+    // dtext: printable ASCII but '[', ']' and '\'.
+    if (right_n < 2 || right[right_n-1] != ']')
+      return "Message-ID has a character not allowed after the '@'";
+    for (i = 1; i + 1 < right_n; ++i)
+      if (strchr("[]\\", right[i]))
+        return "Message-ID has a character not allowed after the '@'";
+    return NULL;
+  }
+  switch (dot_atom(right, right_n)) {
+  case DOT_ATOM_EMPTY:
+    return "Message-ID has nothing after the '@'";
+  case DOT_ATOM_MISPLACED_DOT:
+    return "Message-ID has a misplaced dot";
+  case DOT_ATOM_CHARACTER:
+    return "Message-ID has a character not allowed after the '@'";
+  }
   return NULL;
 }
 
@@ -452,7 +512,7 @@ uw_UrmailFfi_message uw_UrmailFfi_userAgent(uw_context ctx, uw_Basis_string s, u
 
 uw_UrmailFfi_message uw_UrmailFfi_messageId(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
-  const char *e = message_id(s);
+  const char *e = message_id(ctx, s);
 
   if (e)
     add_problem(ctx, m2, "MessageId", s, e);
@@ -1108,10 +1168,10 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
   buf_str(ctx, b, "Date: "); buf_str(ctx, b, date); buf_str(ctx, b, "\r\n");
   if (m->message_id)
-    buf_str(ctx, b, "Message-ID: "), buf_str(ctx, b, m->message_id), buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, MESSAGE_ID_HEADER), buf_str(ctx, b, m->message_id), buf_str(ctx, b, "\r\n");
   else {
     generate_message_id(m->from, message_id, sizeof message_id);
-    buf_str(ctx, b, "Message-ID: "); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
+    buf_str(ctx, b, MESSAGE_ID_HEADER); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
   }
   buf_str(ctx, b, "From: "); buf_address(ctx, b, m->from); buf_str(ctx, b, "\r\n");
   buf_str(ctx, b, "Subject: "); buf_text_header(ctx, b, m->subject); buf_str(ctx, b, "\r\n");
