@@ -1,0 +1,3 @@
+--- check
+refused: img src "/logo.png?v=2": no entry of Images names it, and no file directive serves it
+--- application log

@@ -1,0 +1,4 @@
+# A message made with UrmailFfi's builders, complete and finished, is sent
+# as Urmail.message's would be.
+api=ffi
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

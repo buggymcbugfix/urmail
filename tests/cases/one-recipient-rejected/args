@@ -1,0 +1,6 @@
+# The server accepts one recipient and refuses the other.  The message is one
+# thing: it goes to nobody, the status is Refused, and it names the
+# recipient the server refused.
+mode=reject-bad-rcpt
+tls=none
+form=(From=alice@example.com To=good@example.net,bad@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -1,0 +1,6 @@
+--- status
+Deferred: Timeout was reached
+--- server
+S: 220 fake.test ESMTP
+(client closed the connection)
+--- application log

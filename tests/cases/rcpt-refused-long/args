@@ -1,0 +1,6 @@
+# The server refuses the recipient with a reply of three lines, each with
+# the enhanced status code 5.1.1, as large providers write them: Refused,
+# with the code once and the lines' texts joined.
+mode=reject-rcpt-long
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

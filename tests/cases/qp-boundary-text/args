@@ -1,0 +1,9 @@
+# The boundaries of the multiparts in the text and the HTML version.  The
+# boundaries are fixed, which is safe because every part is
+# quoted-printable or base64, and quoted-printable writes an '=' as =3D:
+# the lines go out changed, and the parts are not cut short.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Boundaries User=alice Password=secret
+      Html='--=_urmail_alternative--'
+      Body=$'before\n--=_urmail_alternative\n--=_urmail_alternative--\n--=_urmail_related--\n--=_urmail_mixed--\nafter\n')

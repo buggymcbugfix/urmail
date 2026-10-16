@@ -1,0 +1,3 @@
+# A subject of 999 bytes.
+api=check
+form=(From=alice@example.com To=bob@example.net Body=x Subject="$(printf 'S%.0s' $(seq 999))")

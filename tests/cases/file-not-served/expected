@@ -1,0 +1,3 @@
+--- check
+refused: Attachment "x.png": no file directive serves "/nope.png"
+--- application log

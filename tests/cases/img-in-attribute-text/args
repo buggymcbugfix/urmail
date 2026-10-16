@@ -1,0 +1,6 @@
+# An entry of Images for the src named only in the text of a link's title
+# (Markup=attr), where it is not a tag: no img src uses it, so the message
+# is refused.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=x Html=world Markup=attr
+      Attach1='image-blob|/fake|f.png|image/png|f')

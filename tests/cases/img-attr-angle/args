@@ -1,0 +1,10 @@
+# An img whose alt has a '>' before its src, and a link whose title holds
+# the text of an img tag: the tags are read with their quoted values, so
+# the alt does not end the tag before the src is seen, and the title's
+# text is not an img.  (img-in-attribute-text shows the latter from the
+# other side.)
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Attributes Body=$'Plain text\n' Html=world Srcs=/chart User=alice Password=secret
+      Markup=attr
+      Attach1='image-blob|/chart|chart.png|image/png|not really a png')

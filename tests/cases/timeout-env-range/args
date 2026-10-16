@@ -1,0 +1,7 @@
+# URMAIL_TIMEOUT=0 is a number but not one of the seconds allowed (1 to
+# 86400): one line on stderr, and the default is used.
+mode=accept
+tls=none
+app_env=(URMAIL_TIMEOUT=0)
+logfilter='^urmail: URMAIL_TIMEOUT'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

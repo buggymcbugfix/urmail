@@ -1,0 +1,5 @@
+# The server declines the login with a 454, a temporary failure: not sent,
+# for now, like any 4xx.
+mode=defer-auth
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

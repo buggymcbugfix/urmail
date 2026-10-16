@@ -1,0 +1,3 @@
+--- check
+refused: Attachment "x.bin": no MIME type is known for "/untyped"; give one in its file directive
+--- application log

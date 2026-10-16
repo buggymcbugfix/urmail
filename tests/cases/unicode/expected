@@ -1,0 +1,45 @@
+--- status
+Sent
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<aenne@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: =?UTF-8?Q?=C3=84nne_M=C3=BCller?= <aenne@example.com>
+| Subject: =?UTF-8?Q?Bestellbest=C3=A4tigung_=E2=80=93_Stra=C3=9Fe?= 1
+| To: bob@example.net
+| Content-Type: multipart/alternative; boundary="=_urmail_alternative"
+|
+| --=_urmail_alternative
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Gr=C3=BC=C3=9Fe aus K=C3=B6ln =E2=80=93 =C3=BCber 30 =C2=B0C
+|
+| --=_urmail_alternative
+| Content-Type: text/html; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| <!DOCTYPE html><html><body><p>Hello <b>Gr&#252;&#223;e</b> &amp; goodbye</p=
+| ></body></html>
+| --=_urmail_alternative--
+END
+S: 250 queued
+(client closed the connection)
+--- application log

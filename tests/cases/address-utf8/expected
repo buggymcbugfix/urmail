@@ -1,0 +1,3 @@
+--- check
+refused: To "bob@müller.example": E-mail address is not ASCII
+--- application log

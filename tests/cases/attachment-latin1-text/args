@@ -1,0 +1,7 @@
+# A text attachment whose bytes are not UTF-8 (ISO 8859-1 here): its
+# encoding cannot be told from the bytes, so it goes out without a
+# charset, as given.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Terms Body=$'See attached\n' User=alice Password=secret
+      Attach1=$'blob|alt.txt|text/plain|Gr\xfcnde')

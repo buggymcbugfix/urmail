@@ -1,0 +1,303 @@
+--- status
+Sent
+Sent
+Sent
+Sent
+Sent
+Sent
+Sent
+Sent
+Sent
+--- server
+--- session 1
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice1" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+C: QUIT
+S: 221 bye
+--- session 2
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice2" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 3
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice3" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 4
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice4" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 5
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice5" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 6
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice6" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 7
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice7" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 8
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice8" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- session 9
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice9" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+MESSAGE:
+| MIME-Version: 1.0
+| Date: <date>
+| Message-ID: <generated@example.com>
+| From: alice@example.com
+| Subject: Hello
+| To: bob@example.net
+| Content-Type: text/plain; charset=utf-8
+| Content-Transfer-Encoding: quoted-printable
+|
+| Hi
+END
+S: 250 queued
+(client closed the connection)
+--- application log
+urmail: new connection record for smtp://127.0.0.1:<port> as alice1
+urmail: new connection record for smtp://127.0.0.1:<port> as alice2
+urmail: new connection record for smtp://127.0.0.1:<port> as alice3
+urmail: new connection record for smtp://127.0.0.1:<port> as alice4
+urmail: new connection record for smtp://127.0.0.1:<port> as alice5
+urmail: new connection record for smtp://127.0.0.1:<port> as alice6
+urmail: new connection record for smtp://127.0.0.1:<port> as alice7
+urmail: new connection record for smtp://127.0.0.1:<port> as alice8
+urmail: new connection record for smtp://127.0.0.1:<port> as alice9
+urmail: closing the connection to smtp://127.0.0.1:<port> as alice1: 9 are open
+urmail: forgetting the connection record for smtp://127.0.0.1:<port> as alice1

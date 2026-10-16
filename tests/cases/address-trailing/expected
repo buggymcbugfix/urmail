@@ -1,0 +1,3 @@
+--- check
+refused: To "<bob@example.net> NOTIFY=NEVER": E-mail address has text after the '>'
+--- application log

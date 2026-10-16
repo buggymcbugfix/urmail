@@ -1,0 +1,6 @@
+# The server refuses MAIL FROM with 550 5.7.1: the account may not send as
+# that sender.  The From belongs to the configuration, not to the message,
+# so the status is Misconfigured.
+mode=reject-mail
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -1,0 +1,20 @@
+--- status
+Deferred: the server declined for now: 450 try again later (RCPT TO:<bob@example.net>)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 450 try again later
+C: QUIT
+S: 221 bye
+--- application log

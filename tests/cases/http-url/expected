@@ -1,0 +1,5 @@
+--- status
+Misconfigured: the server URL is not an smtp:// or smtps:// one (Unsupported protocol)
+--- server
+(no client connected)
+--- application log

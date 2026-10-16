@@ -1,0 +1,8 @@
+# An image and an attachment together: multipart/mixed of the related (the
+# alternative and the image) and the attachment, whatever the order they
+# were given in.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Both Body=$'Plain text\n' Html=world Srcs=/chart User=alice Password=secret
+      Attach1='blob|notes.txt|text/plain|Notes'
+      Attach2='image-blob|/chart|logo.png|image/png|not really a png')

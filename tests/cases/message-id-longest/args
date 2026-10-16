@@ -1,0 +1,7 @@
+# The longest Message-ID that fits: 986 bytes, which with "Message-ID: "
+# makes a header line of 998 characters, all that RFC 5322 allows.  A
+# Message-ID cannot be folded.
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret
+      MessageId="<$(printf 'm%.0s' $(seq 972))@example.com>")

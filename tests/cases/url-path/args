@@ -1,0 +1,8 @@
+# A server URL with a path: libcurl sends the path as the name in EHLO,
+# which the debug trace shows (the transcript's EHLO lines are normalized).
+mode=accept
+tls=none
+url=smtp-path
+app_env=(URMAIL_DEBUG=1)
+logfilter='^> EHLO'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

@@ -1,0 +1,7 @@
+# A long subject that is not ASCII: encoded words in Q encoding, each
+# filling its line and holding whole characters, so that each decodes on
+# its own (RFC 2047, section 5).
+mode=accept
+tls=none
+form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret
+      Subject="$(for i in $(seq 40); do printf 'Grüße €'; done)")

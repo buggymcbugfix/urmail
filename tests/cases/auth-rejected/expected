@@ -1,0 +1,15 @@
+--- status
+Misconfigured: the server refused the login: 535 5.7.8 authentication failed (AUTH PLAIN)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "wrong"]
+S: 535 5.7.8 authentication failed
+(client closed the connection)
+--- application log

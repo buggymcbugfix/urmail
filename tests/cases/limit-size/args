@@ -1,0 +1,4 @@
+# An attachment of 19000000 bytes: with the text, over 18 MiB, which goes
+# out base64-encoded as over 25 MB, a common limit of servers.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Big Body=x Attach1='big|big.txt|text/plain|19000000')

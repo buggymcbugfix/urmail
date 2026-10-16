@@ -1,0 +1,4 @@
+# A MIME subtype of 128 characters: RFC 6838 allows 127.
+api=check
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=x
+      Attach1="blob|x.txt|text/$(printf 'x%.0s' $(seq 128))|x")

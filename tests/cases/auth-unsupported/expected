@@ -1,0 +1,11 @@
+--- status
+Misconfigured: the server offers no login that libcurl can make with a password (Login denied)
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH XOAUTH2
+(client closed the connection)
+--- application log

@@ -1,0 +1,5 @@
+# STARTTLS with a CA file that does not exist: Misconfigured, since every
+# message would fail the same way until the file is there.
+mode=accept
+tls=starttls-badca
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

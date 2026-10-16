@@ -1,0 +1,13 @@
+# The connection is kept open after a message, but not for ever: at the next
+# send, a connection idle for longer than URMAIL_TIMEOUT (run.sh's
+# urmail_timeout, 2 s) is closed first, and the message goes over a new
+# one.  The second request comes 4 s after the first, twice the timeout,
+# so that the connection is idle for well over the timeout, whatever the
+# task's tick.
+mode=accept
+tls=none
+sends=2
+pause=4
+app_env=(URMAIL_DEBUG=1)
+logfilter='^urmail: (closing|new connection)'
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

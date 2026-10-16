@@ -1,0 +1,3 @@
+--- check
+refused: MessageId "<@example.com>": Message-ID has nothing before the '@'
+--- application log

@@ -1,0 +1,7 @@
+# Non-ASCII in the subject, a display name and the body.  In the headers,
+# the words that are not ASCII are encoded, and the words next to them that
+# are encoded too, with the blanks between them, since a reader drops the
+# blanks between two encoded words; "1" stays as it is.
+mode=accept
+tls=none
+form=(From="Änne Müller <aenne@example.com>" To=bob@example.net Subject="Bestellbestätigung – Straße 1" Body=$'Grüße aus Köln – über 30 °C\n' Html="Grüße" User=alice Password=secret)

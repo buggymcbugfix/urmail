@@ -1,0 +1,7 @@
+# URMAIL_DEBUG=0 is off, like an empty value: nothing of the send is traced
+# (debug-credentials shows the trace with it set to 1).  The transcript
+# shows every line of the log, which is none.
+mode=accept
+tls=none
+app_env=(URMAIL_DEBUG=0)
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' User=alice Password=secret)

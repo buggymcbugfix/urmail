@@ -1,0 +1,22 @@
+--- status
+Deferred: Timeout was reached
+--- server
+S: 220 fake.test ESMTP
+C: EHLO <host>
+S: 250-fake.test
+S: 250-STARTTLS
+S: 250-8BITMIME
+S: 250 AUTH PLAIN
+C: AUTH PLAIN
+S: 334
+C: [AUTH PLAIN credentials: "" "alice" "secret"]
+S: 235 ok
+C: MAIL FROM:<alice@example.com>
+S: 250 ok
+C: RCPT TO:<bob@example.net>
+S: 250 ok
+C: DATA
+S: 354 go ahead
+(client closed the connection during the message)
+--- application log
+* Operation too slow. Less than 1024 bytes/sec transferred the last 2 seconds

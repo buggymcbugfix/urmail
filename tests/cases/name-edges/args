@@ -1,0 +1,10 @@
+# Display names at the edges of the syntax: one that is empty quotes, which
+# is no name, so the address stands alone; one with a tab between its
+# words, kept as the blank it is; and one in quotes whose last quote is
+# escaped, so that the quotes do not close and are not the syntax's:
+# written as the text it is, in a quoted-string of its own, with its quotes
+# and its backslash escaped.
+mode=accept
+tls=none
+form=(From='"" <alice@example.com>' To=$'Jane\tDoe <jane@example.net>' Cc='"a\" <ann@example.org>'
+      Subject=Hello Body=$'Hi\n' User=alice Password=secret)

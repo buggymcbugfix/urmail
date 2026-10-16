@@ -1,0 +1,5 @@
+--- status
+Misconfigured: the server URL is not an smtp:// or smtps:// one (URL using bad/illegal format or missing URL)
+--- server
+(no server)
+--- application log
