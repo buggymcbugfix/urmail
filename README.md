@@ -67,7 +67,9 @@ server (`tests/smtpd.py`, python, standard library only), and what the
 server saw, what the application answered and what it logged are compared
 with the case's `expected` file.  A case is a directory under `tests/cases`
 with an `args` file describing the server's behaviour, the TLS setting and
-the message; `-u` rewrites the expected files.  `URWEB` names the compiler
+the message; `-u` rewrites the expected files.  The runner's exit status is
+0 when every case passed, 1 when one failed, and 2 when one could not run
+(its server or application did not start, say).  `URWEB` names the compiler
 to use (with the flags in `URWEB_FLAGS`), otherwise the one on the PATH.
 The runner needs python3, openssl (a self-signed certificate for STARTTLS),
 curl and sqlite3 (the application's queue).  What it builds lands under
