@@ -21,7 +21,8 @@ MESSAGE:
 | MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <generated@example.com>
-| From: "Example Shop GmbH, Customer Service Department for Orders and Returns" <shop@example.com>
+| From: "Example Shop GmbH, Customer Service Department for Orders and Returns"
+|  <shop@example.com>
 | Subject: Hello
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8

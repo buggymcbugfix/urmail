@@ -56,7 +56,11 @@ type message
    changed, so it can be served to a browser as it is.  Images that are the
    same (name, type and bytes) are sent once.  The attachments go after the
    body, in the order of the list.  The texts are sent as given, labelled
-   UTF-8.  A Message-ID is generated when none is given; give one that is a
+   UTF-8.  In the headers, a word that is not ASCII, or looks like an RFC
+   2047 encoded word, goes out as encoded words in Q encoding, which
+   leaves its ASCII readable, and a long value is folded at its blanks
+   into lines of at most 78 characters, where its words allow.  A
+   Message-ID is generated when none is given; give one that is a
    function of the message when it may be sent more than once (a retry
    after a MaybeSent, say), since receivers recognise a duplicate by it. *)
 val message :

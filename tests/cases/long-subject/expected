@@ -22,9 +22,8 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: "Shop (Orders)" <shop@example.com>
-| Subject: =?UTF-8?B?VGhpcyBpcyBhIHJhdGhlciBsb25nIHN1YmplY3QgbGluZSB0aGF0IHdpbGwg?=
-|  =?UTF-8?B?bm90IGZpdCBpbnRvIHRoZSBzZXZlbnR5LXNpeCBjaGFyYWN0ZXJzIGEgaGVh?=
-|  =?UTF-8?B?ZGVyIGxpbmUgc2hvdWxkIGtlZXAgdG8=?=
+| Subject: This is a rather long subject line that will not fit into the
+|  seventy-six characters a header line should keep to
 | To: "Dr. O'Brien" <ob@example.net>
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable

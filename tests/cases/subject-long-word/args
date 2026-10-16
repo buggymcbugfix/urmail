@@ -1,4 +1,6 @@
-# A subject with a word longer than a line of 78 characters: a URL.
+# A subject with a word longer than a line of 78 characters, a URL: folded
+# before and after it, the word on a line of its own, as it is.  A word is
+# encoded only if no line can hold it (998 characters).
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret

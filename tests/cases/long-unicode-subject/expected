@@ -22,16 +22,23 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
-| Subject: =?UTF-8?B?R3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3LDvMOfZSDigqxH?=
-|  =?UTF-8?B?csO8w59lIOKCrEdyw7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdy?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKsR3I=?=
-|  =?UTF-8?B?w7zDn2Ug4oKsR3LDvMOfZSDigqxHcsO8w59lIOKCrEdyw7zDn2Ug4oKs?=
+| Subject: =?UTF-8?Q?Gr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr?=
+|  =?UTF-8?Q?=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe_=E2=82=ACGr=C3=BC=C3=9Fe?=
+|  =?UTF-8?Q?_=E2=82=AC?=
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable

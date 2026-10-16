@@ -1,4 +1,5 @@
-# A display name of 76 characters with a comma, so in quotes.
+# A display name of 70 characters with a comma, so in quotes: folded after
+# it, before the address, to keep the lines within 78 characters.
 mode=accept
 tls=none
 form=(From='"Example Shop GmbH, Customer Service Department for Orders and Returns" <shop@example.com>'

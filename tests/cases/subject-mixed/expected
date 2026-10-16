@@ -22,8 +22,8 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
-| Subject: =?UTF-8?B?SWhyZSBCZXN0ZWxsYmVzdMOkdGlndW5nIE5yLiA0MiB2b20gMTYuMTAuMjAy?=
-|  =?UTF-8?B?NjogdmllbGVuIERhbmsgZsO8ciBJaHJlbiBFaW5rYXVmIGJlaSB1bnM=?=
+| Subject: Ihre =?UTF-8?Q?Bestellbest=C3=A4tigung?= Nr. 42 vom 16.10.2026:
+|  vielen Dank =?UTF-8?Q?f=C3=BCr?= Ihren Einkauf bei uns
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable

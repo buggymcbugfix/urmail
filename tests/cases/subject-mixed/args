@@ -1,4 +1,7 @@
-# A long subject in German, mostly ASCII: what a shop sends.
+# A long subject in German, mostly ASCII, as a shop sends it: only the
+# words that are not ASCII are encoded, in Q encoding, which leaves their
+# ASCII readable, and the subject is folded at blanks to lines of at most 78
+# characters.
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret

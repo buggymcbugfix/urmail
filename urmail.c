@@ -851,8 +851,7 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
 #define RELATED_BOUNDARY "=_urmail_related"
 #define MIXED_BOUNDARY "=_urmail_mixed"
 
-/* ---- Header encoding: RFC 2047 encoded-words for what is not ASCII, and
-   folding for what is long. ---- */
+/* ---- Encodings. ---- */
 
 static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -916,43 +915,251 @@ static int is_utf8(const unsigned char *s, size_t n) {
   return 1;
 }
 
-static int is_ascii_text(const char *s) {
-  for (; *s; ++s)
-    if ((unsigned char)*s >= 0x80 || ((unsigned char)*s < 0x20 && *s != '\t'))
+/* ---- Header values: folded at blanks, so that a line keeps to 78
+   characters where the text allows and to 998 always (RFC 5322, sections
+   2.1.1 and 3.2.2), with RFC 2047 encoded words for the words that need
+   them only, in Q encoding, which leaves ASCII readable. ---- */
+
+// The longest line a message should have, without its CRLF.
+#define GOOD_LINE 78
+
+// An encoded word, of at most 75 characters (RFC 2047, section 2).
+#define ENCODED_WORD_START "=?UTF-8?Q?"
+#define ENCODED_WORD_END "?="
+#define ENCODED_WORD_MAX 75
+#define ENCODED_WORD_OVERHEAD (sizeof ENCODED_WORD_START - 1 + sizeof ENCODED_WORD_END - 1)
+
+// A header being written: its line so far, for the folding.
+typedef struct {
+  uw_context ctx;
+  buf *b;
+  size_t col;     // the length of the current line
+  int has_token;  // whether the current line has a token, after which it may be folded
+  int fold_next;  // the next token goes on a new line
+} header_out;
+
+static void header_begin(header_out *h, uw_context ctx, buf *b, const char *name) {
+  h->ctx = ctx;
+  h->b = b;
+  buf_str(ctx, b, name);
+  buf_str(ctx, b, ":");
+  h->col = strlen(name) + 1;
+  h->has_token = 0;
+  h->fold_next = 0;
+}
+
+static void header_end(header_out *h) {
+  buf_str(h->ctx, h->b, "\r\n");
+}
+
+// Text that goes right after the last token, without blanks: a comma.
+static void header_append(header_out *h, const char *s) {
+  buf_str(h->ctx, h->b, s);
+  h->col += strlen(s);
+}
+
+// tok[0..n) after the blanks ws[0..ws_n), which must not be empty: on the
+// current line if it fits within 78 characters, or within 998 while the
+// line has no token yet; else on a new line, which starts with the blanks.
+// That is folding (RFC 5322, section 3.2.2), which a reader undoes by
+// removing the line break alone, so the blanks stay as they were.
+static void header_put(header_out *h, const char *ws, size_t ws_n, const char *tok, size_t n) {
+  size_t limit = h->has_token ? GOOD_LINE : MAX_LINE;
+
+  if (h->fold_next || h->col + ws_n + n > limit) {
+    buf_str(h->ctx, h->b, "\r\n");
+    h->col = 0;
+    h->fold_next = 0;
+  }
+  buf_append(h->ctx, h->b, ws, ws_n);
+  buf_append(h->ctx, h->b, tok, n);
+  h->col += ws_n + n;
+  h->has_token = 1;
+}
+
+static int is_blank(char c) {
+  return c == ' ' || c == '\t';
+}
+
+// One byte in Q encoding (RFC 2047, section 4.2), into out, and how many
+// characters that is: '_' for a space, the byte itself where it can stand
+// for itself, =XX otherwise.  In a display name fewer can stand for
+// themselves (section 5, rule 3).
+static size_t q_byte(unsigned char c, int in_name, char *out) {
+  static const char hex[] = "0123456789ABCDEF";
+  int itself = in_name
+    ? (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+      || c == '!' || c == '*' || c == '+' || c == '-' || c == '/'
+    : c > ' ' && c < 0x7F && c != '=' && c != '?' && c != '_';
+
+  if (c == ' ') {
+    out[0] = '_';
+    return 1;
+  }
+  if (itself) {
+    out[0] = c;
+    return 1;
+  }
+  out[0] = '=';
+  out[1] = hex[c >> 4];
+  out[2] = hex[c & 15];
+  return 3;
+}
+
+// The longest Q encoding of a character: four bytes of UTF-8, each =XX.
+#define Q_CHAR_MAX 12
+
+// The character at s[i] (of n bytes) in Q encoding, into out, and its
+// length in s, through *len: a UTF-8 lead byte and the continuation bytes
+// after it, so that no character is split between two encoded words
+// (section 5).
+static size_t q_char(const unsigned char *s, size_t i, size_t n, int in_name, char *out, size_t *len) {
+  size_t k = 1, e = q_byte(s[i], in_name, out);
+
+  while (k < 4 && i + k < n && (s[i+k] & 0xC0) == 0x80)
+    e += q_byte(s[i+k], in_name, out + e), ++k;
+  *len = k;
+  return e;
+}
+
+// s[0..n) as encoded words, the first after the blanks ws[0..ws_n): each
+// fills the line it is on and holds whole characters, and blanks go
+// between them, which a reader drops (section 6.2).
+static void header_encoded(header_out *h, const char *ws, size_t ws_n, const unsigned char *s, size_t n,
+                           int in_name) {
+  char word[ENCODED_WORD_MAX + Q_CHAR_MAX], enc[Q_CHAR_MAX];
+  size_t i = 0;
+
+  while (i < n) {
+    size_t len, e = q_char(s, i, n, in_name, enc, &len), t, room;
+
+    // The room for the text on this line, or on a new one, if not even
+    // the first character fits here; at least that character, and at most
+    // what an encoded word can hold.
+    if (h->col + ws_n + ENCODED_WORD_OVERHEAD + e <= GOOD_LINE)
+      room = GOOD_LINE - h->col - ws_n - ENCODED_WORD_OVERHEAD;
+    else {
+      h->fold_next = h->has_token;
+      room = GOOD_LINE > ws_n + ENCODED_WORD_OVERHEAD ? GOOD_LINE - ws_n - ENCODED_WORD_OVERHEAD : 0;
+    }
+    if (room > ENCODED_WORD_MAX - ENCODED_WORD_OVERHEAD)
+      room = ENCODED_WORD_MAX - ENCODED_WORD_OVERHEAD;
+    if (room < e)
+      room = e;
+
+    strcpy(word, ENCODED_WORD_START);
+    t = sizeof ENCODED_WORD_START - 1;
+    while (t - (sizeof ENCODED_WORD_START - 1) + e <= room) {
+      memcpy(word + t, enc, e);
+      t += e;
+      i += len;
+      if (i == n)
+        break;
+      e = q_char(s, i, n, in_name, enc, &len);
+    }
+    memcpy(word + t, ENCODED_WORD_END, sizeof ENCODED_WORD_END - 1);
+    t += sizeof ENCODED_WORD_END - 1;
+    // It fits where the room was worked out, so header_put folds only if
+    // told to.
+    header_put(h, ws, ws_n, word, t);
+    ws = " ";
+    ws_n = 1;
+  }
+}
+
+// Whether a word of a header value has to be encoded: it has a byte
+// outside printable ASCII, or "=?", which a reader could take for the
+// start of an encoded word, or it is too long for a line of its own.
+static int must_encode(const char *w, size_t n) {
+  size_t i;
+
+  if (n > MAX_LINE - 1)
+    return 1;
+  for (i = 0; i < n; ++i) {
+    unsigned char c = w[i];
+    if (c <= ' ' || c >= 0x7F || (c == '=' && i + 1 < n && w[i+1] == '?'))
+      return 1;
+  }
+  return 0;
+}
+
+static int is_atom(const char *w, size_t n) {
+  size_t i;
+
+  for (i = 0; i < n; ++i)
+    if (!is_atext((unsigned char)w[i]))
       return 0;
   return 1;
 }
 
-// `s` as a sequence of encoded-words, each of at most 75 characters and
-// holding whole UTF-8 characters, folded onto continuation lines.
-static void buf_encoded_words(uw_context ctx, buf *b, const char *s) {
-  size_t n = strlen(s), i = 0;
-  int first = 1;
+// Which words header_words encodes.
+enum { ENCODE_MUST, ENCODE_MUST_OR_NOT_ATOM };
+
+static int encoded(const char *w, size_t n, int which) {
+  return must_encode(w, n) || (which == ENCODE_MUST_OR_NOT_ATOM && !is_atom(w, n));
+}
+
+// The words of s with the blanks between them as they are, the first after
+// a blank, then s's own: each word that `which` says is encoded, together
+// with the encoded words next to it and the blanks between them, since the
+// blanks between two encoded words are dropped (RFC 2047, section 6.2).
+// The rest go as they are.
+static void header_words(header_out *h, const char *s, int which, int in_name) {
+  size_t n = strlen(s), i = 0, ws_n;
+  const char *ws;
+  char *first;
+
+  while (i < n && is_blank(s[i]))
+    ++i;
+  first = uw_malloc(h->ctx, i + 1);
+  first[0] = ' ';
+  memcpy(first + 1, s, i);
+  ws = first;
+  ws_n = i + 1;
+  if (i == n) {  // no word: the blanks alone
+    header_append(h, " ");
+    buf_append(h->ctx, h->b, s, n);
+    h->col += n;
+    return;
+  }
   while (i < n) {
-    // Up to 45 bytes (60 base64 characters, 72 with the wrapping), cut at a
-    // character boundary: a continuation byte is 10xxxxxx.
-    size_t len = n - i < 45 ? n - i : 45;
-    while (len > 1 && i + len < n && ((unsigned char)s[i+len] & 0xC0) == 0x80)
-      --len;
-    if (!first)
-      buf_str(ctx, b, "\r\n ");
-    buf_str(ctx, b, "=?UTF-8?B?");
-    buf_base64(ctx, b, (const unsigned char *)s + i, len);
-    buf_str(ctx, b, "?=");
-    first = 0;
-    i += len;
+    size_t w = i, end;
+
+    while (i < n && !is_blank(s[i]))
+      ++i;
+    end = i;
+    if (encoded(s + w, end - w, which)) {
+      // The words that follow and are encoded too.
+      for (;;) {
+        size_t next = end, next_end;
+        while (next < n && is_blank(s[next]))
+          ++next;
+        if (next == n)
+          break;
+        for (next_end = next; next_end < n && !is_blank(s[next_end]); ++next_end);
+        if (!encoded(s + next, next_end - next, which))
+          break;
+        end = next_end;
+      }
+      header_encoded(h, ws, ws_n, (const unsigned char *)s + w, end - w, in_name);
+      i = end;
+    } else
+      header_put(h, ws, ws_n, s + w, end - w);
+    // The blanks after: between this word and the next, or at the end.
+    ws = s + i;
+    while (i < n && is_blank(s[i]))
+      ++i;
+    ws_n = s + i - ws;
+    if (i == n && ws_n) {
+      buf_append(h->ctx, h->b, ws, ws_n);
+      h->col += ws_n;
+    }
   }
 }
 
-// A header value that is plain text (Subject, User-Agent): as it is when
-// ASCII and short, encoded otherwise.  Text that has the "=?" of an encoded
-// word in it is encoded too, so that a client shows it as it is rather than
-// decoding it.
-static void buf_text_header(uw_context ctx, buf *b, const char *s) {
-  if (is_ascii_text(s) && strlen(s) <= 76 && !strstr(s, "=?"))
-    buf_str(ctx, b, s);
-  else
-    buf_encoded_words(ctx, b, s);
+// An unstructured header value (Subject, User-Agent).
+static void header_text(header_out *h, const char *s) {
+  header_words(h, s, ENCODE_MUST, 0);
 }
 
 // Whether `s` (of n bytes) is a quoted-string as RFC 5322 has it: quotes
@@ -972,15 +1179,17 @@ static int is_quoted_string(const char *s, size_t n) {
   return i == n - 1;
 }
 
-// A display name as a phrase.  One given as a quoted-string is unquoted
-// first, so that its quotes do not become part of the name.  Then: bare when
-// it is atext and blanks; a quoted-string when it has other ASCII; encoded
-// words (which fold) when it is not ASCII, is longer than 72 bytes, or has
-// the "=?" of an encoded word in it, which a client would otherwise decode.
-static void buf_name(uw_context ctx, buf *b, const char *name) {
+// A display name as RFC 5322's phrase.  One given as a quoted-string is
+// unquoted first, so that its quotes do not become part of the name.  Then,
+// when no word must be encoded: the words as they are if they are atoms,
+// else the whole in one quoted-string, folded at its blanks, which RFC
+// 5322 allows (section 3.2.4).  When some word must be encoded: the words
+// that are not atoms too, and the atoms as they are.
+static void header_name(header_out *h, const char *name) {
   size_t n = strlen(name), i, len = 0;
-  char *text = malloc(n + 1);
-  int plain = 1;
+  char *text = uw_malloc(h->ctx, n + 1);
+  int must = 0, atoms = 1;
+  char *quoted, *q;
 
   if (is_quoted_string(name, n)) {
     for (i = 1; i < n - 1; ++i) {
@@ -994,47 +1203,55 @@ static void buf_name(uw_context ctx, buf *b, const char *name) {
   }
   text[len] = 0;
 
-  for (i = 0; i < len; ++i)
-    if (!is_atext((unsigned char)text[i]) && text[i] != ' ')
-      plain = 0;
-  if (!is_ascii_text(text) || len > 72 || strstr(text, "=?"))
-    buf_encoded_words(ctx, b, text);
-  else if (plain)
-    buf_str(ctx, b, text);
-  else {
-    buf_str(ctx, b, "\"");
-    for (i = 0; i < len; ++i) {
-      if (text[i] == '"' || text[i] == '\\')
-        buf_str(ctx, b, "\\");
-      buf_append(ctx, b, text + i, 1);
+  for (i = 0; i < len; ) {
+    size_t w;
+    while (i < len && is_blank(text[i]))
+      ++i;
+    for (w = i; i < len && !is_blank(text[i]); ++i);
+    if (i > w) {
+      must = must || must_encode(text + w, i - w);
+      atoms = atoms && is_atom(text + w, i - w);
     }
-    buf_str(ctx, b, "\"");
   }
-  free(text);
+  if (must || atoms) {
+    header_words(h, text, ENCODE_MUST_OR_NOT_ATOM, 1);
+    return;
+  }
+  // A quoted-string, with '"' and '\' escaped; its blanks are where it folds.
+  q = quoted = uw_malloc(h->ctx, 2 * len + sizeof "\"\"");
+  *q++ = '"';
+  for (i = 0; i < len; ++i) {
+    if (text[i] == '"' || text[i] == '\\')
+      *q++ = '\\';
+    *q++ = text[i];
+  }
+  *q++ = '"';
+  *q = 0;
+  header_words(h, quoted, ENCODE_MUST, 0);
 }
 
-// One address for a header: the addr-spec alone, or the name as a phrase
-// and the addr-spec in brackets.
-static void buf_address(uw_context ctx, buf *b, uw_UrmailFfi_emailAddress a) {
+// One address: the addr-spec alone, or the name as a phrase and the
+// addr-spec in brackets.
+static void header_address(header_out *h, uw_UrmailFfi_emailAddress a) {
   if (a->name) {
-    buf_name(ctx, b, a->name);
-    buf_str(ctx, b, " <");
-    buf_str(ctx, b, a->addr);
-    buf_str(ctx, b, ">");
+    char *bracketed = uw_Basis_mstrcat(h->ctx, "<", a->addr, ">", NULL);
+    header_name(h, a->name);
+    header_put(h, " ", 1, bracketed, strlen(bracketed));
   } else
-    buf_str(ctx, b, a->addr);
+    header_put(h, " ", 1, a->addr, strlen(a->addr));
 }
 
-// A list of addresses in the order given, one per line after the first when
-// there are several.
-static void buf_address_list(uw_context ctx, buf *b, struct address_list *l) {
+// A list of addresses in the order given, one per line after the first.
+static void header_address_list(header_out *h, struct address_list *l) {
   uw_UrmailFfi_emailAddress *as;
   size_t n = addresses_in_order(l, &as), i;
 
   for (i = 0; i < n; ++i) {
-    if (i)
-      buf_str(ctx, b, ",\r\n ");
-    buf_address(ctx, b, as[i]);
+    if (i) {
+      header_append(h, ",");
+      h->fold_next = 1;
+    }
+    header_address(h, as[i]);
   }
   free(as);
 }
@@ -1226,6 +1443,7 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   char date[64], message_id[512];
   struct part **images, **attached;
   size_t n_images, n_attached, i;
+  header_out h;
 
   date_header(date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
@@ -1236,16 +1454,26 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
     generate_message_id(m->from, message_id, sizeof message_id);
     buf_str(ctx, b, MESSAGE_ID_HEADER); buf_str(ctx, b, message_id); buf_str(ctx, b, "\r\n");
   }
-  buf_str(ctx, b, "From: "); buf_address(ctx, b, m->from); buf_str(ctx, b, "\r\n");
-  buf_str(ctx, b, "Subject: "); buf_text_header(ctx, b, m->subject); buf_str(ctx, b, "\r\n");
+  header_begin(&h, ctx, b, "From");
+  header_address(&h, m->from);
+  header_end(&h);
+  header_begin(&h, ctx, b, "Subject");
+  header_text(&h, m->subject);
+  header_end(&h);
   if (m->to) {
-    buf_str(ctx, b, "To: "); buf_address_list(ctx, b, m->to); buf_str(ctx, b, "\r\n");
+    header_begin(&h, ctx, b, "To");
+    header_address_list(&h, m->to);
+    header_end(&h);
   }
   if (m->cc) {
-    buf_str(ctx, b, "Cc: "); buf_address_list(ctx, b, m->cc); buf_str(ctx, b, "\r\n");
+    header_begin(&h, ctx, b, "Cc");
+    header_address_list(&h, m->cc);
+    header_end(&h);
   }
   if (m->user_agent) {
-    buf_str(ctx, b, "User-Agent: "); buf_text_header(ctx, b, m->user_agent); buf_str(ctx, b, "\r\n");
+    header_begin(&h, ctx, b, "User-Agent");
+    header_text(&h, m->user_agent);
+    header_end(&h);
   }
 
   n_images = parts_in_order(m->images, &images);

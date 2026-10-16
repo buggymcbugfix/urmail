@@ -22,10 +22,9 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
-| Subject: =?UTF-8?B?RG93bmxvYWQ6IGh0dHBzOi8vZXhhbXBsZS5jb20vcHBwcHBwcHBwcHBwcHBw?=
-|  =?UTF-8?B?cHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw?=
-|  =?UTF-8?B?cHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcC9maWxl?=
-|  =?UTF-8?B?LnBkZiAodmFsaWQgZm9yIDcgZGF5cyk=?=
+| Subject: Download:
+|  https://example.com/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/file.pdf
+|  (valid for 7 days)
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable

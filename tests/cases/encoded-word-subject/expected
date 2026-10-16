@@ -22,7 +22,7 @@ MESSAGE:
 | Date: <date>
 | Message-ID: <generated@example.com>
 | From: alice@example.com
-| Subject: =?UTF-8?B?PT9VVEYtOD9CP1NHVnNiRzg9Pz0=?=
+| Subject: =?UTF-8?Q?=3D=3FUTF-8=3FB=3FSGVsbG8=3D=3F=3D?=
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
