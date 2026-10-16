@@ -1,11 +1,9 @@
-# A '.' that a soft line break puts at the start of an encoded line.  The
-# encoder encodes a '.' at the start of an input line, "so nothing depends
-# on dot-stuffing", but not one that a soft break moves there: the line
-# ".abc" and the line "." go out as they are, and only libcurl's
-# dot-stuffing keeps the second from ending the DATA.  (The fake server
-# removes the first dot of every line that starts with one, as a server
-# undoes the stuffing, so a dot that libcurl had not doubled would be
-# missing from the transcript.)
+# A '.' that a soft line break puts at the start of an encoded line goes
+# out as it is, as every '.' does: the line ".abc" and the line ".", and
+# only libcurl's dot-stuffing keeps the second from ending the DATA.  (The
+# fake server removes the first dot of every line that starts with one, as
+# a server undoes the stuffing, so a dot that libcurl had not doubled would
+# be missing from the transcript.)
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Dots User=alice Password=secret

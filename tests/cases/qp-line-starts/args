@@ -1,8 +1,9 @@
 # What the quoted-printable encoder does at the start of a line, which some
-# mail systems change: a "From " (mbox delivery writes ">From "), one that
-# a soft line break moves there, a "Fromage" and a "from " (left alone by
-# mbox), a line of a single '.' (which would end the DATA) and a line
-# starting with '.'.
+# mail systems change: a "From " (mbox delivery writes ">From ") has its 'F'
+# encoded, also when a soft line break moves it there, and a "Fromage" and
+# a "from " (left alone by mbox) do not.  A line of a single '.' (which
+# would end the DATA) and a line starting with '.' go out as they are, and
+# dot-stuffing takes care of them.
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Subject=Starts User=alice Password=secret

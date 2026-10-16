@@ -28,7 +28,7 @@ MESSAGE:
 | Content-Transfer-Encoding: quoted-printable
 |
 | a=3Db
-| =2Ehidden dot
+| .hidden dot
 | trailing space=20
 | windows line
 | 	tabbed

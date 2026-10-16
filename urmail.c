@@ -808,15 +808,20 @@ static void buf_str(uw_context ctx, buf *b, const char *s) {
   buf_append(ctx, b, s, strlen(s));
 }
 
-// A body as quoted-printable (RFC 2045): lines of at most 76 characters,
-// CRLF line ends whatever the input had, everything outside printable ASCII
-// as =XX.  Long lines and 8-bit text then pass any SMTP server, and a bare
-// '.' at the start of a line is encoded too, so nothing depends on
-// dot-stuffing.
+// A body as quoted-printable (RFC 2045, section 6.7): lines of at most 76
+// characters, CRLF line ends whatever the input had, and as =XX everything
+// outside printable ASCII, '=', a space or tab before a line end, and the
+// 'F' of a "From " that starts a line.  Long lines and 8-bit text then
+// pass any SMTP server.  Delivery into an mbox file turns "From " at the
+// start of a line into ">From ", since such a line starts a new message
+// there, and RFC 2049 (section 3, item 8) advises encoding the 'F' against
+// that.  A line of a single '.', the other danger that item names, is
+// taken care of by SMTP itself: libcurl doubles a '.' at the start of a
+// line, and the server removes it again (dot-stuffing, RFC 5321, section
+// 4.5.2).
 static void buf_qp(uw_context ctx, buf *b, const char *s) {
   static const char hex[] = "0123456789ABCDEF";
   size_t col = 0;
-  int at_line_start = 1;
   for (; *s; ++s) {
     unsigned char c = *s;
     char enc[3];
@@ -826,26 +831,27 @@ static void buf_qp(uw_context ctx, buf *b, const char *s) {
     if (c == '\n') {
       buf_append(ctx, b, "\r\n", 2);
       col = 0;
-      at_line_start = 1;
       continue;
     }
-    if ((c >= 33 && c <= 126 && c != '=' && !(at_line_start && c == '.'))
-        || ((c == ' ' || c == '\t') && s[1] && s[1] != '\n' && !(s[1] == '\r' && s[2] == '\n'))) {
-      enc[0] = c;
-      n = 1;
-    } else {
-      enc[0] = '=';
-      enc[1] = hex[c >> 4];
-      enc[2] = hex[c & 15];
-      n = 3;
-    }
+    n = (c >= 33 && c <= 126 && c != '=')
+        || ((c == ' ' || c == '\t') && s[1] && s[1] != '\n' && !(s[1] == '\r' && s[2] == '\n'))
+        ? 1 : 3;
     if (col + n > 75) {  // room for the soft break's '=' within 76
       buf_append(ctx, b, "=\r\n", 3);
       col = 0;
     }
+    // After the soft break, if any, which may have moved it to the start.
+    if (col == 0 && !strncmp(s, "From ", 5))
+      n = 3;
+    if (n == 1)
+      enc[0] = c;
+    else {
+      enc[0] = '=';
+      enc[1] = hex[c >> 4];
+      enc[2] = hex[c & 15];
+    }
     buf_append(ctx, b, enc, n);
     col += n;
-    at_line_start = 0;
   }
 }
 

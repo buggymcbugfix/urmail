@@ -27,13 +27,13 @@ MESSAGE:
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
 |
-| From here
+| =46rom here
 | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=
-| From there
+| =46rom there
 | Fromage
 | from below
-| =2E
-| =2Edot
+| .
+| .dot
 END
 S: 250 queued
 (client closed the connection)
