@@ -55,7 +55,6 @@ fun message r =
 				|> all UrmailFfi.to r.To
 				|> all UrmailFfi.cc r.Cc
 				|> all UrmailFfi.bcc r.Bcc
-				|> UrmailFfi.checkRecipients
 				|> UrmailFfi.subject r.Subject
 				|> opt UrmailFfi.userAgent r.UserAgent
 				|> opt UrmailFfi.messageId r.MessageId

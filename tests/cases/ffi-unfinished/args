@@ -1,0 +1,6 @@
+# A message made with UrmailFfi's builders and changed after finish (the
+# test application sets the UserAgent then): it is no longer finished, and
+# send refuses it with a fatal error.
+api=ffi
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body=$'Hi\n' UserAgent=late
+      User=alice Password=secret)

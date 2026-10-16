@@ -363,13 +363,15 @@ struct message {
   // srcs pointing at the images, and the images, each once, newest first.
   uw_Basis_string html;
   struct part_list *images;
-  int finished;  // by Urmail.message
+  int finished;  // by finish, and nothing changed since
 };
 
 typedef struct message *uw_UrmailFfi_message;
 
 uw_UrmailFfi_message uw_UrmailFfi_start = NULL;
 
+// The message to change, a copy: every builder starts with one, so the copy
+// is not finished, whatever m was.
 static uw_UrmailFfi_message copy(uw_context ctx, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = uw_malloc(ctx, sizeof *m2);
 
@@ -377,6 +379,7 @@ static uw_UrmailFfi_message copy(uw_context ctx, uw_UrmailFfi_message m) {
     *m2 = *m;
   else
     memset(m2, 0, sizeof *m2);
+  m2->finished = 0;
   return m2;
 }
 
@@ -482,14 +485,6 @@ uw_UrmailFfi_message uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_Urma
   return m2;
 }
 
-uw_UrmailFfi_message uw_UrmailFfi_checkRecipients(uw_context ctx, uw_UrmailFfi_message m) {
-  uw_UrmailFfi_message m2 = copy(ctx, m);
-
-  if (!m2->to && !m2->cc && !m2->bcc)
-    add_problem(ctx, m2, "To, Cc and Bcc", NULL, "no recipient");
-  return m2;
-}
-
 uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
   const char *e = header(s);
@@ -527,10 +522,18 @@ uw_UrmailFfi_message uw_UrmailFfi_text(uw_context ctx, uw_Basis_string s, uw_Urm
   return m2;
 }
 
+// The HTML as sent and its images, made by lookUpImages from the page and
+// the entries of Images, and so out of date when either changes.
+static void forget_lookup(uw_UrmailFfi_message m) {
+  m->html = NULL;
+  m->images = NULL;
+}
+
 uw_UrmailFfi_message uw_UrmailFfi_html(uw_context ctx, uw_Basis_string page, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
   m2->page = page;
+  forget_lookup(m2);
   return m2;
 }
 
@@ -671,6 +674,7 @@ uw_UrmailFfi_message uw_UrmailFfi_imageBlob(uw_context ctx, uw_Basis_string url,
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
   add_entry(ctx, m2, url, blob_part(ctx, m2, "Image", url, name, type, data));
+  forget_lookup(m2);
   return m2;
 }
 
@@ -679,6 +683,7 @@ uw_UrmailFfi_message uw_UrmailFfi_imageServedFile(uw_context ctx, uw_Basis_strin
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
   add_entry(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path));
+  forget_lookup(m2);
   return m2;
 }
 
@@ -694,10 +699,23 @@ uw_UrmailFfi_message uw_UrmailFfi_lookUpImages(uw_context ctx, uw_UrmailFfi_mess
   return m2;
 }
 
-// The message complete, for send to tell one from Urmail.message.
+// The message complete, with a problem for each part it lacks, so that
+// send can rely on them.  Urmail.message gives every part, and the
+// recipients may be missing only there; the rest can only be missing from
+// a message built with UrmailFfi directly.
 uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
+  if (!m2->from)
+    add_problem(ctx, m2, "From", NULL, "not given");
+  if (!m2->to && !m2->cc && !m2->bcc)
+    add_problem(ctx, m2, "To, Cc and Bcc", NULL, "no recipient");
+  if (!m2->subject)
+    add_problem(ctx, m2, "Subject", NULL, "not given");
+  if (!m2->text)
+    add_problem(ctx, m2, "PlainTextBody", NULL, "not given");
+  if (m2->page && !m2->html)
+    add_problem(ctx, m2, "HtmlBody", NULL, "its img srcs were not looked up after it and its Images were given");
   m2->finished = 1;
   return m2;
 }
@@ -1838,8 +1856,9 @@ static void deliver(job *j, outcome *o) {
 }
 
 // UrmailFfi.send, in io: assemble the message, send it now, and say what
-// became of it.  A message that is not what Urmail.message returned is not
-// something the Ur side can produce, so an error of the caller.
+// became of it.  Urmail.message gives send only finished messages without
+// problems, so another one comes from code that used UrmailFfi directly:
+// an error of that code, reported with what is wrong.
 uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server, uw_UrmailFfi_tls tls,
                                           uw_Basis_string user, uw_Basis_string password,
                                           uw_UrmailFfi_message m) {
@@ -1848,8 +1867,23 @@ uw_UrmailFfi_sendStatus uw_UrmailFfi_send(uw_context ctx, uw_Basis_string server
   outcome o;
   uw_UrmailFfi_sendStatus r = uw_malloc(ctx, sizeof(struct uw_UrmailFfi_sendStatus));
 
-  if (!m || !m->finished || m->problems || (m->page && !m->html))
-    uw_error(ctx, FATAL, "urmail: a message not from Urmail.message");
+  if (!m || !m->finished)
+    uw_error(ctx, FATAL, "urmail: send was given a message that UrmailFfi.finish did not end"
+                         " (Urmail.message makes complete ones)");
+  if (m->problems) {
+    // The problems on the error's one line.
+    const char *l;
+    buf why = {NULL, 0, 0};
+    char *text;
+    for (l = uw_UrmailFfi_problems(ctx, m); *l; ++l)
+      if (*l == '\n')
+        buf_str(ctx, &why, "; ");
+      else
+        buf_append(ctx, &why, l, 1);
+    text = uw_strdup(ctx, why.s);
+    free(why.s);
+    uw_error(ctx, FATAL, "urmail: send was given a message with problems (Urmail.message refuses those): %s", text);
+  }
   assemble(ctx, &b, m);
 
   j.m = m;

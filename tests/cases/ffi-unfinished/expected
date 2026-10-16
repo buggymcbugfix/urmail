@@ -1,0 +1,6 @@
+--- status
+sending a message made with UrmailFfi
+--- server
+(no client connected)
+--- application log
+Fatal error in io task: urmail: send was given a message that UrmailFfi.finish did not end (Urmail.message makes complete ones)

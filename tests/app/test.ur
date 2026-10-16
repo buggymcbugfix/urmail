@@ -2,7 +2,9 @@
    which stores them for the io task below; the task makes the message with
    Urmail.message, sends it with Urmail.send and records the status, to be
    read back from `status`.  `check` shows what Urmail.message makes of the
-   fields, for the cases about the checks.  The fake SMTP server records
+   fields, for the cases about the checks.  `queueFfi` is `queue` for a
+   message that the task makes with UrmailFfi directly, bypassing
+   Urmail.message, as an application could.  The fake SMTP server records
    what arrives. *)
 
 type fields = { Server : string, Tls : string, Ca : string, User : string, Password : string,
@@ -15,7 +17,7 @@ table job : { Id : int, Server : string, Tls : string, Ca : string, User : strin
               From : string, To : string, Cc : string, Bcc : string, Subject : string,
               Body : string, Html : string, Srcs : string, MessageId : string, UserAgent : string,
               Attach1 : string, Attach2 : string, Attach3 : string,
-              Status : option string }
+              Ffi : bool, Status : option string }
   PRIMARY KEY Id
 
 (* A comma-separated list; an empty field means none. *)
@@ -84,6 +86,28 @@ fun tls [rest ::: {Type}] [rest ~ [Tls, Ca]] (r : $([Tls = string, Ca = string] 
       | "starttls-noverify" => Urmail.TlsNoVerify
       | _ => error <xml>bad Tls field</xml>
 
+(* A message made with UrmailFfi's builders: only from the fields that are
+   not empty, and with none of Urmail.message's other steps but finish.  A
+   UserAgent, if given, is set after finish, which leaves the message
+   unfinished. *)
+fun ffiMessage [rest ::: {Type}] [rest ~ [From, To, Cc, Bcc, Subject, Body, UserAgent]]
+               (r : $([From = string, To = string, Cc = string, Bcc = string, Subject = string,
+                       Body = string, UserAgent = string] ++ rest)) : UrmailFfi.message =
+    let
+        fun given f s m = if s = "" then m else f s m
+        fun all f l m = List.foldl f m l
+    in
+        UrmailFfi.start
+            |> given UrmailFfi.from r.From
+            |> all UrmailFfi.to (addrs r.To)
+            |> all UrmailFfi.cc (addrs r.Cc)
+            |> all UrmailFfi.bcc (addrs r.Bcc)
+            |> given UrmailFfi.subject r.Subject
+            |> given UrmailFfi.text r.Body
+            |> UrmailFfi.finish
+            |> given UrmailFfi.userAgent r.UserAgent
+    end
+
 fun showStatus s =
     case s of
         Urmail.Sent => "Sent"
@@ -92,28 +116,41 @@ fun showStatus s =
       | Urmail.MaybeSent m => "MaybeSent: " ^ m
       | Urmail.Failed m => "Failed: " ^ m
 
-fun queue (r : fields) =
+fun enqueue (viaFfi : bool) (r : fields) =
     id <- nextval jobIds;
     dml (INSERT INTO job (Id, Server, Tls, Ca, User, Password, From, To, Cc, Bcc, Subject, Body,
-                          Html, Srcs, MessageId, UserAgent, Attach1, Attach2, Attach3, Status)
+                          Html, Srcs, MessageId, UserAgent, Attach1, Attach2, Attach3, Ffi, Status)
          VALUES ({[id]}, {[r.Server]}, {[r.Tls]}, {[r.Ca]}, {[r.User]}, {[r.Password]}, {[r.From]},
                  {[r.To]}, {[r.Cc]}, {[r.Bcc]}, {[r.Subject]}, {[r.Body]}, {[r.Html]}, {[r.Srcs]},
-                 {[r.MessageId]}, {[r.UserAgent]}, {[r.Attach1]}, {[r.Attach2]}, {[r.Attach3]}, NULL));
+                 {[r.MessageId]}, {[r.UserAgent]}, {[r.Attach1]}, {[r.Attach2]}, {[r.Attach3]},
+                 {[viaFfi]}, NULL));
     return <xml><body>queued</body></xml>
+
+fun queue r = enqueue False r
+fun queueFfi r = enqueue True r
+
+fun record id s = dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[id]})
 
 (* An application makes the message in the transaction that claims the job
    (see examples/queue.ur); here what is wrong with it is just recorded, and
-   the cases about the checks post to `check` instead. *)
+   the cases about the checks post to `check` instead.  A send that fails
+   ends the task's run, so for a message made with UrmailFfi, which send is
+   expected to refuse that way, a status is recorded first. *)
 task periodic 1 = fn () =>
     jobs <- runTransaction (queryL1 (SELECT * FROM job WHERE job.Status IS NULL ORDER BY job.Id));
     _ <- List.mapM (fn j =>
-                       s <- (case message j of
-                                 Failure e => return ("Invalid: " ^ show e)
-                               | Success m =>
-                                 s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
-                                                   Password = j.Password, Message = m};
-                                 return (showStatus s));
-                       runTransaction (dml (UPDATE job SET Status = {[Some s]} WHERE Id = {[j.Id]})))
+                       if j.Ffi then
+                           runTransaction (record j.Id "sending a message made with UrmailFfi");
+                           s <- UrmailFfi.send j.Server (tls j) j.User j.Password (ffiMessage j);
+                           runTransaction (record j.Id ("UrmailFfi.send gave " ^ showStatus s))
+                       else
+                           s <- (case message j of
+                                     Failure e => return ("Invalid: " ^ show e)
+                                   | Success m =>
+                                     s <- Urmail.send {ServerUrl = j.Server, Tls = tls j, User = j.User,
+                                                       Password = j.Password, Message = m};
+                                     return (showStatus s));
+                           runTransaction (record j.Id s))
                    jobs;
     return ()
 
@@ -144,5 +181,12 @@ fun main () : transaction page = return <xml><body>
     <textarea{#Body}/> <textbox{#Html}/> <textbox{#Srcs}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
     <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
     <submit action={check}/>
+  </form>
+  <form>
+    <textbox{#Server}/> <textbox{#Tls}/> <textbox{#Ca}/> <textbox{#User}/> <textbox{#Password}/>
+    <textbox{#From}/> <textbox{#To}/> <textbox{#Cc}/> <textbox{#Bcc}/> <textbox{#Subject}/>
+    <textarea{#Body}/> <textbox{#Html}/> <textbox{#Srcs}/> <textbox{#MessageId}/> <textbox{#UserAgent}/>
+    <textbox{#Attach1}/> <textbox{#Attach2}/> <textbox{#Attach3}/>
+    <submit action={queueFfi}/>
   </form>
 </body></xml>

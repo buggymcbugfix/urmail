@@ -1,5 +1,5 @@
-# No recipient at all: nothing a parser can see, so send refuses it, before
-# anything is sent.
+# No recipient at all: Urmail.message refuses the message, so nothing is
+# sent.
 mode=accept
 tls=none
 form=(From=alice@example.com Subject=Hello Body=$'Hi\n' User=alice Password=secret)

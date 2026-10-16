@@ -29,7 +29,6 @@ uw_UrmailFfi_message uw_UrmailFfi_from(uw_context, uw_Basis_string, uw_UrmailFfi
 uw_UrmailFfi_message uw_UrmailFfi_to(uw_context, uw_Basis_string, uw_UrmailFfi_message);
 uw_UrmailFfi_message uw_UrmailFfi_cc(uw_context, uw_Basis_string, uw_UrmailFfi_message);
 uw_UrmailFfi_message uw_UrmailFfi_bcc(uw_context, uw_Basis_string, uw_UrmailFfi_message);
-uw_UrmailFfi_message uw_UrmailFfi_checkRecipients(uw_context, uw_UrmailFfi_message);
 uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context, uw_Basis_string, uw_UrmailFfi_message);
 uw_UrmailFfi_message uw_UrmailFfi_userAgent(uw_context, uw_Basis_string, uw_UrmailFfi_message);
 uw_UrmailFfi_message uw_UrmailFfi_messageId(uw_context, uw_Basis_string, uw_UrmailFfi_message);

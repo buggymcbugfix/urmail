@@ -22,11 +22,12 @@
 #               app_env=(NAME=VALUE ...) (added to the application's
 #               environment), logfilter=REGEX (only the lines of the
 #               application's log that match, grep -E, are transcribed),
-#               api=io|check (the message is
+#               api=io|check|ffi (the message is
 #               queued and sent by the application's io task, the default,
-#               or only checked by Urmail.message; the transcript's first
-#               part is the statuses the task recorded, or what
-#               Urmail.message said).  The file runs in a shell of its own,
+#               or only checked by Urmail.message, or made by the task with
+#               UrmailFfi's builders and sent with UrmailFfi.send; the
+#               transcript's first part is the statuses the task recorded,
+#               or what Urmail.message said).  The file runs in a shell of its own,
 #               under set -u; a setting with a value not listed here, or a
 #               variable that is not a setting and whose name does not
 #               start with '_', means the case cannot run.
@@ -311,6 +312,7 @@ run_case() {
   case $api in
     io) handler=queue ;;
     check) handler=check ;;
+    ffi) handler=queueFfi ;;
     *) cannot_run "unknown api $api"; return ;;
   esac
   [[ $sends =~ ^[1-9][0-9]*$ ]] || { cannot_run "sends=$sends is not a number of requests"; return; }
@@ -400,7 +402,7 @@ run_case() {
       case_failed "request $i $(answered "$code")"; cat "$work/app.log" >&2; stop_case; return
     fi
   done
-  if [ "$api" = io ]; then
+  if [ "$api" != check ]; then
     # The task sends within a second of the request; wait for as many
     # statuses as there were requests (a hung server takes the timeout).
     deadline=$((SECONDS + status_limit))
@@ -437,7 +439,7 @@ run_case() {
   fi
 
   {
-    if [ "$api" = io ]; then
+    if [ "$api" != check ]; then
       echo "--- status"
       text "$work/status"
     else

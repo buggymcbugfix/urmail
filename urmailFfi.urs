@@ -14,14 +14,17 @@ val addressString : emailAddress -> string
    never fail: what is wrong is kept, one line for each problem, naming the
    field and the value given, and [problems] gives the lines, in the order
    they were found, joined by newlines.  [lookUpImages] looks up the
-   page's img srcs, after the entries of Images; [finish] comes last. *)
+   page's img srcs, after [html] and the entries of Images.  [finish] comes
+   last: it adds a problem for each part that was not given (From, a
+   recipient, Subject, the text, the look-up), and a message that a builder
+   changed after it is not finished.  [send] takes only a finished message
+   without problems. *)
 type message
 val start : message
 val from : string -> message -> message
 val to : string -> message -> message
 val cc : string -> message -> message
 val bcc : string -> message -> message
-val checkRecipients : message -> message  (* after To, Cc and Bcc *)
 val subject : string -> message -> message
 val userAgent : string -> message -> message
 val messageId : string -> message -> message
@@ -76,7 +79,8 @@ datatype sendStatus =
                             fails the same way until the configuration is
                             changed; the message itself is fine. *)
 
-(* Send now.  The message must be one Urmail.message returned. *)
+(* Send now.  The message must be finished and without problems, as one
+   that Urmail.message returned is; any other is a fatal error. *)
 val send : string           (* Server, as a libcurl URL *)
            -> tls
            -> string        (* Username (for SMTP authentication; "" for no login) *)

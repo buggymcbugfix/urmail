@@ -1,0 +1,6 @@
+--- status
+sending a message made with UrmailFfi
+--- server
+(no client connected)
+--- application log
+Fatal error in io task: urmail: send was given a message with problems (Urmail.message refuses those): From: not given; Subject: not given; PlainTextBody: not given
