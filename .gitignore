@@ -19,6 +19,7 @@
 /stamp-h1
 /tests/config.urp
 /tests/out
+/tests/out.lock
 /urmail.pc
 Makefile
 Makefile.in

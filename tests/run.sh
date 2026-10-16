@@ -42,7 +42,8 @@
 # library.  Everything the run makes lands under the build tree's tests/out:
 # copies of the application and the examples, whose lib.urp names the
 # sources and the library by absolute path, so that a build tree apart from
-# the source tree works and nothing is written into the source tree.
+# the source tree works and nothing is written into the source tree.  Runs
+# in one build tree take turns.
 #
 # Every case starts from nothing: its own directory under tests/out, its own
 # server and application, which are stopped when it ends, however it ends.
@@ -54,12 +55,23 @@
 # run itself could not: a tool missing, the application not building).
 
 set -u
+unset CDPATH  # with it, cd prints the directory, into the paths below
 
+die() { echo "run.sh: $*" >&2; exit 2; }
+
+# Every path absolute, since the compiler and the application run in other
+# directories.
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(cd "$here/.." && pwd)
-build=${BUILDDIR:-$top}
+build=$(cd "${BUILDDIR:-$top}" 2>/dev/null && pwd) || die "BUILDDIR=${BUILDDIR:-} is not a directory"
 out=$build/tests/out
 urweb=${URWEB:-urweb}
+case $urweb in
+  */*) d=$(cd "$(dirname "$urweb")" 2>/dev/null && pwd) || die "URWEB=$urweb: no such directory"
+       urweb=$d/$(basename "$urweb") ;;
+  *) urweb=$(command -v "$urweb") || die "no $urweb on the PATH: set URWEB or put it there" ;;
+esac
+[ -f "$urweb" ] && [ -x "$urweb" ] || die "URWEB=$urweb is not an executable"
 urweb_flags=${URWEB_FLAGS:-}
 
 # The limits on the waits, in seconds: for the server and the application
@@ -74,12 +86,9 @@ stop_limit=10
 update=0
 if [ "${1:-}" = "-u" ]; then update=1; shift; fi
 
-die() { echo "run.sh: $*" >&2; exit 2; }
-
 for tool in python3 openssl curl sqlite3 timeout; do
   command -v "$tool" >/dev/null || die "$tool is needed"
 done
-command -v "$urweb" >/dev/null || die "no urweb: set URWEB or put it on the PATH"
 modes=$(python3 "$here/smtpd.py" --list-modes | tr '\n' ' ') || die "smtpd.py does not run"
 fields="From To Cc Bcc Subject Body Html Srcs User Password MessageId UserAgent Attach1 Attach2 Attach3"
 [ -f "$build/tests/config.urp" ] || die "tests/config.urp is missing: run configure and make first"
@@ -125,19 +134,51 @@ stop_case() {
   if [ -n "$app_pid" ]; then stop "$app_pid"; app_pid=; fi
   if [ -n "$srv_pid" ]; then stop "$srv_pid"; wait "$srv_pid" 2>/dev/null; srv_pid=; fi
 }
-trap stop_case EXIT
+
+# One run at a time in a build tree, since a run starts by deleting
+# tests/out.  The lock is a directory, made atomically, holding the pid of
+# the run that made it; a lock whose run is gone is taken over.
+lock=$build/tests/out.lock
+locked=0
+take_lock() {
+  local owner said=0
+  until mkdir "$lock" 2>/dev/null; do
+    owner=$(cat "$lock/pid" 2>/dev/null)
+    if [ -n "$owner" ] && ! running "$owner"; then
+      rm -rf "$lock"
+      continue
+    fi
+    [ $said = 1 ] || echo "run.sh: waiting for the run in $build${owner:+ (pid $owner)} to end" >&2
+    said=1
+    sleep 1
+  done
+  echo $$ > "$lock/pid"
+  locked=1
+}
+
+trap 'stop_case; [ $locked = 0 ] || rm -rf "$lock"' EXIT
 trap 'exit 2' HUP INT TERM
+take_lock
 
 rm -rf "$out"
 mkdir -p "$out"
 
-# The application and the examples, copied, over a lib.urp made from
-# tests/lib.urp with the sources named by absolute path and config.urp the
-# build tree's.
+# The application and the examples, copied, and made writable, since the
+# source tree may not be (make distcheck makes it read-only), and the
+# compiler writes next to the .urp.  Over them, lib.urp: the library's own,
+# with the sources named by absolute path, so that its config.urp is the
+# build tree's, copied next to it.
 cp -r "$here/app" "$out/app"
 cp -r "$top/examples" "$out/examples"
+chmod -R u+w "$out/app" "$out/examples"
 cp "$build/tests/config.urp" "$out/config.urp"
-sed -e "s#^ffi \.\./#ffi $top/#; s#^\.\./#$top/#" "$here/lib.urp" > "$out/lib.urp"
+while IFS= read -r line; do
+  case $line in
+    "ffi "*) printf 'ffi %s/%s\n' "$top" "${line#ffi }" ;;
+    ""|"#"*|"$/"*|*" "*) printf '%s\n' "$line" ;;
+    *) printf '%s/%s\n' "$top" "$line" ;;
+  esac
+done < "$top/lib.urp" > "$out/lib.urp"
 
 # A certificate for the fake server's STARTTLS, self-signed, so that it
 # doubles as the CA the client is given.

@@ -46,11 +46,11 @@ check-local:
 	BUILDDIR=$(abs_top_builddir) $(SHELL) $(top_srcdir)/tests/run.sh
 
 distclean-local:
-	rm -rf tests/out
+	rm -rf tests/out tests/out.lock
 
 # tests goes into the distribution as a directory; what a test run in the
 # source tree or configure left there is not part of it.
 dist-hook:
-	rm -rf $(distdir)/tests/out $(distdir)/tests/app/test.exe $(distdir)/tests/config.urp
+	rm -rf $(distdir)/tests/out $(distdir)/tests/out.lock $(distdir)/tests/app/test.exe $(distdir)/tests/config.urp
 
 .PHONY: check-local distclean-local dist-hook
