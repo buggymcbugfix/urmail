@@ -1,0 +1,8 @@
+# A golden transcript records what the library wrote, line by line.  A
+# header line may end in a blank, and then the blank is the point of the
+# case.
+#
+# This file is here and not at the top of the tree on purpose: one git am
+# over a series that adds a top-level .gitattributes goes on warning for the
+# later patches, which a file in this directory does not.
+/*/expected whitespace=-blank-at-eol
