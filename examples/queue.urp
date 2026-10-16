@@ -1,0 +1,8 @@
+library ..
+file /logo.png logo.png image/png
+rewrite url Queue/*
+prefix http://localhost:8080/
+
+$/list
+$/option
+queue

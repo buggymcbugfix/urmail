@@ -1,5 +1,0 @@
-library ..
-rewrite url Test/*
-prefix http://localhost:8080/
-
-test

@@ -1,0 +1,81 @@
+(* The C side of urmail, for Urmail (urmail.ur) to wrap.  Applications use
+   Urmail. *)
+
+(* An address, parsed into its display name and its addr-spec.
+   [parseAddress] never fails: what is wrong with what it was given is what
+   [addressProblem] says, and [addressString] gives the text back as it was
+   given, without the blanks around it. *)
+type emailAddress
+val parseAddress : string -> emailAddress
+val addressProblem : emailAddress -> option string
+val addressString : emailAddress -> string
+
+(* A message, built up one field at a time by Urmail.message.  The builders
+   never fail: what is wrong is kept, one line for each problem, naming the
+   field and the value given, and [problems] gives the lines, in the order
+   they were found, joined by newlines.  [lookUpImages] looks up the
+   page's img srcs, after [html] and the entries of Images.  [finish] comes
+   last: it adds a problem for each part that was not given (From, a
+   recipient, Subject, the text, the look-up), and a message that a builder
+   changed after it is not finished.  [send] takes only a finished message
+   without problems. *)
+type message
+val start : message
+val from : string -> message -> message
+val to : string -> message -> message
+val cc : string -> message -> message
+val bcc : string -> message -> message
+val subject : string -> message -> message
+val userAgent : string -> message -> message
+val messageId : string -> message -> message
+val text : string -> message -> message
+val html : page -> message -> message
+(* An entry of Images: the url, then the Blob's name, MIME type and bytes,
+   or the ServedFile's name, if given, and path. *)
+val imageBlob : url -> string -> string -> blob -> message -> message
+val imageServedFile : url -> option string -> string -> message -> message
+(* An attachment, the same way. *)
+val attachBlob : string -> string -> blob -> message -> message
+val attachServedFile : option string -> string -> message -> message
+val lookUpImages : message -> message
+val finish : message -> message
+val problems : message -> option string
+
+(* How to talk to the server. *)
+datatype tls =
+    Plain                 (* No TLS. *)
+  | Tls of option string  (* TLS, by STARTTLS or an smtps:// URL, with the
+                             server's certificate verified: against the CA
+                             file given, or the system's CAs if None. *)
+  | TlsNoVerify           (* TLS without verifying the certificate. For a
+                             development server with a self-signed
+                             certificate; never for production, since anyone
+                             on the path can then read the credentials. *)
+
+(* What became of a message, as Urmail.sendStatus has it (see there),
+   with the reply and the problem as values to read, which Urmail makes
+   records of.  [problemReply] is for a problem that [problemHasReply]. *)
+type reply
+val replyCode : reply -> int
+val replyEnhanced : reply -> option string
+val replyText : reply -> string
+val replyCommand : reply -> string
+type problem
+val problemHasReply : problem -> bool
+val problemReply : problem -> reply
+val problemDetail : problem -> string
+datatype sendStatus =
+    Sent
+  | Refused of reply
+  | Deferred of problem
+  | MaybeSent of problem
+  | Misconfigured of problem
+
+(* Send now.  The message must be finished and without problems, as one
+   that Urmail.message returned is; any other is a fatal error. *)
+val send : string           (* Server, as a libcurl URL *)
+           -> tls
+           -> string        (* Username (for SMTP authentication; "" for no login) *)
+           -> string        (* Password (for SMTP authentication) *)
+           -> message
+           -> io sendStatus
