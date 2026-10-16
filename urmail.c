@@ -248,31 +248,36 @@ uw_Basis_string uw_UrmailFfi_addressString(uw_context ctx, uw_UrmailFfi_emailAdd
   return a->text;
 }
 
-// A list of addresses, newest first: consing keeps the headers values the
-// builders return immutable.  Readers take them in the order given.
-struct address_list {
-  uw_UrmailFfi_emailAddress a;
-  struct address_list *next;
+// A list, newest first: consing keeps the messages that the builders
+// return immutable, since the messages made from one another share their
+// lists.  The items are of the type the list's comment names; in_order
+// gives them in the order they were added.
+struct list {
+  void *item;
+  struct list *next;
 };
 
-static struct address_list *cons_address(uw_context ctx, uw_UrmailFfi_emailAddress a, struct address_list *l) {
-  struct address_list *cell = uw_malloc(ctx, sizeof *cell);
+static struct list *cons(uw_context ctx, void *item, struct list *l) {
+  struct list *cell = uw_malloc(ctx, sizeof *cell);
 
-  cell->a = a;
+  cell->item = item;
   cell->next = l;
   return cell;
 }
 
-// The addresses of a list in the order they were given, as a malloc'd array.
-static size_t addresses_in_order(struct address_list *l, uw_UrmailFfi_emailAddress **out) {
+// The items of a list in the order they were added, and how many, in an
+// array of the request's memory.
+static size_t in_order(uw_context ctx, const struct list *l, void ***out) {
   size_t n = 0, i;
-  struct address_list *p;
+  const struct list *p;
+  void **a;
 
   for (p = l; p; p = p->next)
     ++n;
-  *out = n ? malloc(n * sizeof **out) : NULL;
+  a = uw_malloc(ctx, (n ? n : 1) * sizeof *a);
   for (p = l, i = n; p; p = p->next)
-    (*out)[--i] = p->a;
+    a[--i] = p->item;
+  *out = a;
   return n;
 }
 
@@ -412,11 +417,6 @@ static const char *mime_type(uw_Basis_string s) {
    them.  Each builder returns a new message and leaves the one it was given
    as it was, as a pure function must; the lists are shared. ---- */
 
-struct problem {
-  const char *line;
-  struct problem *next;
-};
-
 // The Content-ID of an image, what the HTML refers to it by: a hash of the
 // image, at a domain of the library's own (see add_image).
 #define CONTENT_ID_DOMAIN "urmail"
@@ -433,31 +433,29 @@ struct part {
   char content_id[sizeof "0123456789abcdef.4294967295@" CONTENT_ID_DOMAIN];
 };
 
-struct part_list {
-  struct part *part;
-  struct part_list *next;
-};
-
 // An entry of Images: the url of the img src it stands for, and the image,
 // or NULL when the entry has a problem (which is kept).
 struct image_entry {
   uw_Basis_string url;
   struct part *part;
-  struct image_entry *next;
 };
+
+// The fields of recipients, each a list of addresses.
+enum { TO_FIELD, CC_FIELD, BCC_FIELD, RECIPIENT_FIELDS };
+static const char *const recipient_field[RECIPIENT_FIELDS] = {"To", "Cc", "Bcc"};
 
 struct message {
   uw_UrmailFfi_emailAddress from;
-  struct address_list *to, *cc, *bcc;
+  struct list *recipients[RECIPIENT_FIELDS];  // of uw_UrmailFfi_emailAddress
   uw_Basis_string subject, user_agent, message_id, text;
-  uw_Basis_string page;           // the HTML version as given, or NULL
-  struct image_entry *entries;    // Images, newest first
-  struct part_list *attachments;  // newest first
-  struct problem *problems;       // newest first
+  uw_Basis_string page;      // the HTML version as given, or NULL
+  struct list *entries;      // Images, of struct image_entry *
+  struct list *attachments;  // of struct part *
+  struct list *problems;     // of const char *, one line each
   // What lookUpImages (below) made of the page: the HTML as sent, its img
-  // srcs pointing at the images, and the images, each once, newest first.
+  // srcs pointing at the images, and the images, each once.
   uw_Basis_string html;
-  struct part_list *images;
+  struct list *images;       // of struct part *
   int finished;  // by finish, and nothing changed since
 };
 
@@ -551,14 +549,11 @@ static const char *with_value(uw_context ctx, const char *format, const char *va
 // Keep a problem: FIELD VALUE: WHAT, or FIELD: WHAT when there is no value.
 static void add_problem(uw_context ctx, uw_UrmailFfi_message m, const char *field,
                         const char *value, const char *what) {
-  struct problem *p = uw_malloc(ctx, sizeof *p);
   const char *v = value ? quoted_value(ctx, value) : "";
   char *line = uw_malloc(ctx, strlen(field) + 1 + strlen(v) + 2 + strlen(what) + 1);
 
   sprintf(line, "%s%s%s: %s", field, value ? " " : "", v, what);
-  p->line = line;
-  p->next = m->problems;
-  m->problems = p;
+  m->problems = cons(ctx, line, m->problems);
 }
 
 static uw_UrmailFfi_emailAddress address_of(uw_context ctx, uw_UrmailFfi_message m, const char *field,
@@ -577,43 +572,46 @@ uw_UrmailFfi_message uw_UrmailFfi_from(uw_context ctx, uw_Basis_string s, uw_Urm
   return m2;
 }
 
-uw_UrmailFfi_message uw_UrmailFfi_to(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+static uw_UrmailFfi_message add_recipient(uw_context ctx, int field, uw_Basis_string s, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
-  m2->to = cons_address(ctx, address_of(ctx, m2, "To", s), m2->to);
+  m2->recipients[field] = cons(ctx, address_of(ctx, m2, recipient_field[field], s), m2->recipients[field]);
   return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_to(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  return add_recipient(ctx, TO_FIELD, s, m);
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_cc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
-  uw_UrmailFfi_message m2 = copy(ctx, m);
-
-  m2->cc = cons_address(ctx, address_of(ctx, m2, "Cc", s), m2->cc);
-  return m2;
+  return add_recipient(ctx, CC_FIELD, s, m);
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_bcc(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
-  uw_UrmailFfi_message m2 = copy(ctx, m);
-
-  m2->bcc = cons_address(ctx, address_of(ctx, m2, "Bcc", s), m2->bcc);
-  return m2;
+  return add_recipient(ctx, BCC_FIELD, s, m);
 }
 
-uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+// A copy of m, with a problem if s is not a header text, for `field`.
+static uw_UrmailFfi_message with_header_text(uw_context ctx, const char *field, uw_Basis_string s,
+                                             uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
   const char *e = header(ctx, s);
 
   if (e)
-    add_problem(ctx, m2, "Subject", s, e);
+    add_problem(ctx, m2, field, s, e);
+  return m2;
+}
+
+uw_UrmailFfi_message uw_UrmailFfi_subject(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = with_header_text(ctx, "Subject", s, m);
+
   m2->subject = s;
   return m2;
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_userAgent(uw_context ctx, uw_Basis_string s, uw_UrmailFfi_message m) {
-  uw_UrmailFfi_message m2 = copy(ctx, m);
-  const char *e = header(ctx, s);
+  uw_UrmailFfi_message m2 = with_header_text(ctx, "UserAgent", s, m);
 
-  if (e)
-    add_problem(ctx, m2, "UserAgent", s, e);
   m2->user_agent = s;
   return m2;
 }
@@ -665,14 +663,6 @@ static struct part *new_part(uw_context ctx, uw_Basis_string name, uw_Basis_stri
   return p;
 }
 
-static struct part_list *cons_part(uw_context ctx, struct part *p, struct part_list *l) {
-  struct part_list *cell = uw_malloc(ctx, sizeof *cell);
-
-  cell->part = p;
-  cell->next = l;
-  return cell;
-}
-
 // A Blob, checked, or NULL with its problems kept under FIELD VALUE.
 static struct part *blob_part(uw_context ctx, uw_UrmailFfi_message m, const char *field, const char *value,
                               uw_Basis_string name, uw_Basis_string type, uw_Basis_blob data) {
@@ -695,9 +685,10 @@ static struct part *blob_part(uw_context ctx, uw_UrmailFfi_message m, const char
 
 // A ServedFile, checked, the same way.  Its bytes and its MIME type are
 // those of the file directive serving `path`; `name`, when NULL, is the
-// path's last segment, as Basis names a served file.
+// path's last segment, as Basis names a served file.  For an img src (the
+// path is the src), the problems say what is to be done about it there.
 static struct part *served_part(uw_context ctx, uw_UrmailFfi_message m, const char *field, const char *value,
-                                uw_Basis_string name, uw_Basis_string path) {
+                                uw_Basis_string name, uw_Basis_string path, int for_src) {
   uw_Basis_file *f = uw_Basis_checkServedFile(ctx, path);
   const char *e;
   int ok = 1;
@@ -707,19 +698,23 @@ static struct part *served_part(uw_context ctx, uw_UrmailFfi_message m, const ch
     ok = 0;
   }
   if (!f) {
-    add_problem(ctx, m, field, value, with_value(ctx, "no file directive serves %s", path));
+    add_problem(ctx, m, field, value,
+                for_src ? "no entry of Images names it, and no file directive serves it"
+                        : with_value(ctx, "no file directive serves %s", path));
     return NULL;
   }
   if (!*f->type) {
     add_problem(ctx, m, field, value,
-                with_value(ctx, "no MIME type is known for %s; give one in its file directive", path));
+                for_src ? "no MIME type is known for it; give one in its file directive"
+                        : with_value(ctx, "no MIME type is known for %s; give one in its file directive", path));
     ok = 0;
   }
   if (!name) {
     name = f->name;
     if (!name) {
       add_problem(ctx, m, field, value,
-                  with_value(ctx, "%s has no last segment to name the file by; give a Name", path));
+                  for_src ? "it has no last segment to name the image by"
+                          : with_value(ctx, "%s has no last segment to name the file by; give a Name", path));
       ok = 0;
     } else if ((e = part_name(name))) {
       add_problem(ctx, m, field, value, e);
@@ -735,35 +730,35 @@ uw_UrmailFfi_message uw_UrmailFfi_attachBlob(uw_context ctx, uw_Basis_string nam
   struct part *p = blob_part(ctx, m2, "Attachment", name, name, type, data);
 
   if (p)
-    m2->attachments = cons_part(ctx, p, m2->attachments);
+    m2->attachments = cons(ctx, p, m2->attachments);
   return m2;
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_attachServedFile(uw_context ctx, uw_Basis_string name, uw_Basis_string path,
                                                    uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
-  struct part *p = served_part(ctx, m2, "Attachment", name ? name : path, name, path);
+  struct part *p = served_part(ctx, m2, "Attachment", name ? name : path, name, path, 0);
 
   if (p)
-    m2->attachments = cons_part(ctx, p, m2->attachments);
+    m2->attachments = cons(ctx, p, m2->attachments);
   return m2;
 }
 
 // An entry of Images, kept unless there is one for the url already, which
 // is a problem: the first one stands.
 static void add_entry(uw_context ctx, uw_UrmailFfi_message m, uw_Basis_string url, struct part *p) {
+  struct list *l;
   struct image_entry *e;
 
-  for (e = m->entries; e; e = e->next)
-    if (!strcmp(e->url, url)) {
+  for (l = m->entries; l; l = l->next)
+    if (!strcmp(((struct image_entry *)l->item)->url, url)) {
       add_problem(ctx, m, "Image", url, "given twice in Images");
       return;
     }
   e = uw_malloc(ctx, sizeof *e);
   e->url = url;
   e->part = p;
-  e->next = m->entries;
-  m->entries = e;
+  m->entries = cons(ctx, e, m->entries);
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_imageBlob(uw_context ctx, uw_Basis_string url, uw_Basis_string name,
@@ -779,7 +774,7 @@ uw_UrmailFfi_message uw_UrmailFfi_imageServedFile(uw_context ctx, uw_Basis_strin
                                                   uw_Basis_string path, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
-  add_entry(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path));
+  add_entry(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path, 0));
   forget_lookup(m2);
   return m2;
 }
@@ -818,26 +813,24 @@ static int same_mailbox(const char *a, const char *b) {
 // what the envelope gets, the RCPT TO commands.  At most `limit` of them;
 // addresses with a problem are left out.
 static size_t envelope(uw_context ctx, uw_UrmailFfi_message m, const char ***out, size_t limit) {
-  struct address_list *lists[3] = {m->to, m->cc, m->bcc}, *l;
-  uw_UrmailFfi_emailAddress *as;
   size_t total = 0, count = 0, n, i, j;
   int k;
   const char **r;
+  void **as;
 
-  for (k = 0; k < 3; ++k)
-    for (l = lists[k]; l; l = l->next)
-      ++total;
+  for (k = 0; k < RECIPIENT_FIELDS; ++k)
+    total += in_order(ctx, m->recipients[k], &as);
   r = uw_malloc(ctx, (total ? total : 1) * sizeof *r);
-  for (k = 0; k < 3; ++k) {
-    n = addresses_in_order(lists[k], &as);
+  for (k = 0; k < RECIPIENT_FIELDS; ++k) {
+    n = in_order(ctx, m->recipients[k], &as);
     for (i = 0; i < n && count < limit; ++i) {
-      if (as[i]->error)
+      uw_UrmailFfi_emailAddress a = as[i];
+      if (a->error)
         continue;
-      for (j = 0; j < count && !same_mailbox(r[j], as[i]->addr); ++j);
+      for (j = 0; j < count && !same_mailbox(r[j], a->addr); ++j);
       if (j == count)
-        r[count++] = as[i]->addr;
+        r[count++] = a->addr;
     }
-    free(as);
   }
   *out = r;
   return count;
@@ -852,7 +845,7 @@ uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m)
 
   if (!m2->from)
     add_problem(ctx, m2, "From", NULL, "not given");
-  if (!m2->to && !m2->cc && !m2->bcc)
+  if (!m2->recipients[TO_FIELD] && !m2->recipients[CC_FIELD] && !m2->recipients[BCC_FIELD])
     add_problem(ctx, m2, "To, Cc and Bcc", NULL, "no recipient");
   if (!m2->subject)
     add_problem(ctx, m2, "Subject", NULL, "not given");
@@ -866,12 +859,12 @@ uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m)
       add_problem(ctx, m2, "To, Cc and Bcc", NULL, "more than " NUMBER(MAX_RECIPIENTS) " recipients");
   }
   {
-    struct part_list *l;
+    struct list *l;
     uw_Basis_int size = (m2->text ? strlen(m2->text) : 0) + (m2->page ? strlen(m2->page) : 0);
     for (l = m2->attachments; l; l = l->next)
-      size += l->part->data.size;
+      size += ((struct part *)l->item)->data.size;
     for (l = m2->images; l; l = l->next)
-      size += l->part->data.size;
+      size += ((struct part *)l->item)->data.size;
     if (size > MAX_CONTENT)
       add_problem(ctx, m2, "The message", NULL,
                   uw_Basis_mstrcat(ctx, "its text, HTML, attachments and images come to ", uw_Basis_intToString(ctx, size),
@@ -884,20 +877,15 @@ uw_UrmailFfi_message uw_UrmailFfi_finish(uw_context ctx, uw_UrmailFfi_message m)
 
 // The problems, one line each, in the order they were found, or NULL.
 uw_Basis_string uw_UrmailFfi_problems(uw_context ctx, uw_UrmailFfi_message m) {
-  struct problem *p;
-  size_t n = 0, len = 0, i;
-  const char **lines;
+  size_t n, len = 0, i;
+  void **lines;
   char *s, *o;
 
   if (!m || !m->problems)
     return NULL;
-  for (p = m->problems; p; p = p->next) {
-    ++n;
-    len += strlen(p->line) + 1;
-  }
-  lines = uw_malloc(ctx, n * sizeof *lines);
-  for (p = m->problems, i = n; p; p = p->next)
-    lines[--i] = p->line;
+  n = in_order(ctx, m->problems, &lines);
+  for (i = 0; i < n; ++i)
+    len += strlen(lines[i]) + 1;
   s = o = uw_malloc(ctx, len);
   for (i = 0; i < n; ++i) {
     if (i)
@@ -973,6 +961,26 @@ static void buf_append(uw_context ctx, buf *b, const char *s, size_t n) {
 
 static void buf_str(uw_context ctx, buf *b, const char *s) {
   buf_append(ctx, b, s, strlen(s));
+}
+
+// s as RFC 5322's quoted-string: quotes around, '"' and '\\' escaped.  With
+// ascii_only, a character that is not ASCII becomes '_' (each byte that
+// does not continue a UTF-8 sequence does), for the copy of a name that a
+// client that does not read RFC 2231's filename* shows.
+static void buf_quoted(uw_context ctx, buf *b, const char *s, int ascii_only) {
+  buf_str(ctx, b, "\"");
+  for (; *s; ++s) {
+    unsigned char c = *s;
+    if (ascii_only && c >= 0x80) {
+      if ((c & 0xC0) != 0x80)
+        buf_str(ctx, b, "_");
+      continue;
+    }
+    if (c == '"' || c == '\\')
+      buf_str(ctx, b, "\\");
+    buf_append(ctx, b, s, 1);
+  }
+  buf_str(ctx, b, "\"");
 }
 
 static const char hex_digits[] = "0123456789ABCDEF";
@@ -1330,7 +1338,7 @@ static void header_name(header_out *h, const char *name) {
   size_t n = strlen(name), i, len = 0;
   char *text = uw_malloc(h->ctx, n + 1);
   int must = 0, atoms = 1;
-  char *quoted, *q;
+  buf quoted = {NULL, 0, 0};
 
   if (is_quoted_string(name, n)) {
     for (i = 1; i < n - 1; ++i) {
@@ -1358,17 +1366,10 @@ static void header_name(header_out *h, const char *name) {
     header_words(h, text, ENCODE_MUST_OR_NOT_ATOM, 1);
     return;
   }
-  // A quoted-string, with '"' and '\' escaped; its blanks are where it folds.
-  q = quoted = uw_malloc(h->ctx, 2 * len + sizeof "\"\"");
-  *q++ = '"';
-  for (i = 0; i < len; ++i) {
-    if (text[i] == '"' || text[i] == '\\')
-      *q++ = '\\';
-    *q++ = text[i];
-  }
-  *q++ = '"';
-  *q = 0;
-  header_words(h, quoted, ENCODE_MUST, 0);
+  // A quoted-string; its blanks are where it folds.
+  buf_quoted(h->ctx, &quoted, text, 0);
+  header_words(h, uw_strdup(h->ctx, quoted.s), ENCODE_MUST, 0);
+  free(quoted.s);
 }
 
 // One address: the addr-spec alone, or the name as a phrase and the
@@ -1383,9 +1384,9 @@ static void header_address(header_out *h, uw_UrmailFfi_emailAddress a) {
 }
 
 // A list of addresses in the order given, one per line after the first.
-static void header_address_list(header_out *h, struct address_list *l) {
-  uw_UrmailFfi_emailAddress *as;
-  size_t n = addresses_in_order(l, &as), i;
+static void header_address_list(header_out *h, struct list *l) {
+  void **as;
+  size_t n = in_order(h->ctx, l, &as), i;
 
   for (i = 0; i < n; ++i) {
     if (i) {
@@ -1394,7 +1395,6 @@ static void header_address_list(header_out *h, struct address_list *l) {
     }
     header_address(h, as[i]);
   }
-  free(as);
 }
 
 // The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
@@ -1450,17 +1450,6 @@ static void buf_base64_lines(uw_context ctx, buf *b, const unsigned char *s, siz
   }
 }
 
-// A name as the value of filename=: quoted, with '"' and '\' escaped.
-static void buf_quoted(uw_context ctx, buf *b, const char *s) {
-  buf_str(ctx, b, "\"");
-  for (; *s; ++s) {
-    if (*s == '"' || *s == '\\')
-      buf_str(ctx, b, "\\");
-    buf_append(ctx, b, s, 1);
-  }
-  buf_str(ctx, b, "\"");
-}
-
 // A name as the value of filename*= (RFC 2231): UTF-8, percent-encoded but
 // for letters, digits and "-._".
 static void buf_extended(uw_context ctx, buf *b, const char *s) {
@@ -1485,26 +1474,6 @@ static int is_ascii_name(const char *s) {
   return 1;
 }
 
-// A name that is not ASCII, for filename= beside the filename*= that
-// carries it: '_' for each character that is not ASCII (each byte that does
-// not continue a UTF-8 sequence), so a client that does not read filename*
-// still shows the extension and the rest.
-static void buf_ascii_copy(uw_context ctx, buf *b, const char *s) {
-  buf_str(ctx, b, "\"");
-  for (; *s; ++s) {
-    unsigned char c = *s;
-    if (c >= 0x80) {
-      if ((c & 0xC0) != 0x80)
-        buf_str(ctx, b, "_");
-      continue;
-    }
-    if (c == '"' || c == '\\')
-      buf_str(ctx, b, "\\");
-    buf_append(ctx, b, s, 1);
-  }
-  buf_str(ctx, b, "\"");
-}
-
 // One part as MIME has it: its headers, then the bytes in base64.  An image
 // has the Content-ID the HTML refers to.  A name that is not ASCII goes into
 // a filename*= (RFC 2231), first, since a parser that takes the first of the
@@ -1526,12 +1495,12 @@ static void buf_part(uw_context ctx, buf *b, struct part *p, int is_image) {
   buf_str(ctx, b, is_image ? "Content-Disposition: inline;" : "Content-Disposition: attachment;");
   if (is_ascii_name(p->name)) {
     buf_str(ctx, b, " filename=");
-    buf_quoted(ctx, b, p->name);
+    buf_quoted(ctx, b, p->name, 0);
   } else {
     buf_str(ctx, b, " filename*=");
     buf_extended(ctx, b, p->name);
     buf_str(ctx, b, ";\r\n filename=");
-    buf_ascii_copy(ctx, b, p->name);
+    buf_quoted(ctx, b, p->name, 1);
   }
   buf_str(ctx, b, "\r\nContent-Transfer-Encoding: base64\r\n\r\n");
   buf_base64_lines(ctx, b, (const unsigned char *)p->data.data, p->data.size);
@@ -1569,27 +1538,13 @@ static void buf_body(uw_context ctx, buf *b, uw_Basis_string body, uw_Basis_stri
   }
 }
 
-// The parts of a list in the order they were given: the list is newest
-// first.
-static size_t parts_in_order(struct part_list *l, struct part ***out) {
-  size_t n = 0, i;
-  struct part_list *p;
-
-  for (p = l; p; p = p->next)
-    ++n;
-  *out = n ? malloc(n * sizeof **out) : NULL;
-  for (p = l, i = n; p; p = p->next)
-    (*out)[--i] = p->part;
-  return n;
-}
-
 // Assemble the message: headers, then the body; with images, a
 // multipart/related of the body and those; with attachments, a
 // multipart/mixed of all that and those.
 static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   char date[sizeof "Thu, 01 Jan 1970 00:00:00 +0000" + 8];  // room for a long year
   char message_id[sizeof "<@>" + MESSAGE_ID_UNIQUE + MAX_ADDR_SPEC];
-  struct part **images, **attached;
+  void **images, **attached;
   size_t n_images, n_attached, i;
   header_out h;
 
@@ -1608,24 +1563,20 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   header_begin(&h, ctx, b, "Subject");
   header_text(&h, m->subject);
   header_end(&h);
-  if (m->to) {
-    header_begin(&h, ctx, b, "To");
-    header_address_list(&h, m->to);
-    header_end(&h);
-  }
-  if (m->cc) {
-    header_begin(&h, ctx, b, "Cc");
-    header_address_list(&h, m->cc);
-    header_end(&h);
-  }
+  for (i = TO_FIELD; i <= CC_FIELD; ++i)  // Bcc is the envelope's only
+    if (m->recipients[i]) {
+      header_begin(&h, ctx, b, recipient_field[i]);
+      header_address_list(&h, m->recipients[i]);
+      header_end(&h);
+    }
   if (m->user_agent) {
     header_begin(&h, ctx, b, "User-Agent");
     header_text(&h, m->user_agent);
     header_end(&h);
   }
 
-  n_images = parts_in_order(m->images, &images);
-  n_attached = parts_in_order(m->attachments, &attached);
+  n_images = in_order(ctx, m->images, &images);
+  n_attached = in_order(ctx, m->attachments, &attached);
   if (n_attached)
     buf_str(ctx, b, "Content-Type: multipart/mixed; boundary=\"" MIXED_BOUNDARY "\"\r\n\r\n"
                     "--" MIXED_BOUNDARY "\r\n");
@@ -1646,8 +1597,6 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   }
   if (n_attached)
     buf_str(ctx, b, "\r\n--" MIXED_BOUNDARY "--");
-  free(images);
-  free(attached);
 }
 
 /* ---- The page's img srcs.  A page is the string Ur/Web renders, which is
@@ -1696,35 +1645,19 @@ static char *unattrify(uw_context ctx, const char *s, size_t n) {
 // segment.  Other srcs are left as they are.  `used` marks the entries used,
 // `entries` being them in the order given.
 static struct part *image_for(uw_context ctx, uw_UrmailFfi_message m, const char *src,
-                              struct image_entry **entries, size_t n_entries, char *used) {
-  uw_Basis_file *f;
-  const char *e;
+                              void **entries, size_t n_entries, char *used) {
   size_t i;
-  int ok = 1;
 
-  for (i = 0; i < n_entries; ++i)
-    if (!strcmp(entries[i]->url, src)) {
+  for (i = 0; i < n_entries; ++i) {
+    struct image_entry *e = entries[i];
+    if (!strcmp(e->url, src)) {
       used[i] = 1;
-      return entries[i]->part;
+      return e->part;
     }
+  }
   if (has_scheme(src) || (src[0] == '/' && src[1] == '/'))
     return NULL;
-  if (!(f = uw_Basis_checkServedFile(ctx, (uw_Basis_string)src))) {
-    add_problem(ctx, m, "img src", src, "no entry of Images names it, and no file directive serves it");
-    return NULL;
-  }
-  if (!*f->type) {
-    add_problem(ctx, m, "img src", src, "no MIME type is known for it; give one in its file directive");
-    ok = 0;
-  }
-  if (!f->name) {
-    add_problem(ctx, m, "img src", src, "it has no last segment to name the image by");
-    ok = 0;
-  } else if ((e = part_name(f->name))) {
-    add_problem(ctx, m, "img src", src, e);
-    ok = 0;
-  }
-  return ok ? new_part(ctx, f->name, f->type, f->data) : NULL;
+  return served_part(ctx, m, "img src", src, NULL, (uw_Basis_string)src, 1);
 }
 
 // FNV-1a, 64 bits, over s[0..n), continuing from h.
@@ -1762,17 +1695,19 @@ static int same_part(const struct part *a, const struct part *b) {
 // Urmail.message stays a function; another image with the same hash gets a
 // count after it.
 static struct part *add_image(uw_context ctx, uw_UrmailFfi_message m, struct part *p) {
-  struct part_list *l;
+  struct list *l;
   struct part *image;
   unsigned long long h = part_hash(p);
   unsigned same_hash = 0;
 
-  for (l = m->images; l; l = l->next)
-    if (l->part->hash == h) {
-      if (same_part(l->part, p))
-        return l->part;
+  for (l = m->images; l; l = l->next) {
+    struct part *q = l->item;
+    if (q->hash == h) {
+      if (same_part(q, p))
+        return q;
       ++same_hash;
     }
+  }
   image = uw_malloc(ctx, sizeof *image);
   *image = *p;
   image->hash = h;
@@ -1780,7 +1715,7 @@ static struct part *add_image(uw_context ctx, uw_UrmailFfi_message m, struct par
     snprintf(image->content_id, sizeof image->content_id, CONTENT_ID_FORMAT_NTH, h, same_hash + 1);
   else
     snprintf(image->content_id, sizeof image->content_id, CONTENT_ID_FORMAT, h);
-  m->images = cons_part(ctx, image, m->images);
+  m->images = cons(ctx, image, m->images);
   return image;
 }
 
@@ -1797,17 +1732,12 @@ static const char *script_end(const char *s) {
 // src used, each a problem.
 static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m) {
   const char *s = m->page, *last = s, *p = s;
-  struct image_entry *e, **entries;
-  size_t n_entries = 0, i;
-  char *used;
+  void **entries;
+  size_t n_entries = in_order(ctx, m->entries, &entries), i;
+  char *used = uw_malloc(ctx, n_entries ? n_entries : 1);
   buf out = {NULL, 0, 0};
 
-  for (e = m->entries; e; e = e->next)
-    ++n_entries;
-  entries = malloc((n_entries ? n_entries : 1) * sizeof *entries);
-  used = calloc(n_entries ? n_entries : 1, 1);
-  for (e = m->entries, i = n_entries; e; e = e->next)
-    entries[--i] = e;
+  memset(used, 0, n_entries ? n_entries : 1);
 
   while ((p = strchr(p, '<'))) {
     const char *name;
@@ -1878,9 +1808,7 @@ static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m) {
 
   for (i = 0; i < n_entries; ++i)
     if (!used[i])
-      add_problem(ctx, m, "Image", entries[i]->url, "no img src of the page uses it");
-  free(entries);
-  free(used);
+      add_problem(ctx, m, "Image", ((struct image_entry *)entries[i])->url, "no img src of the page uses it");
 }
 
 /* ---- Delivery: a persistent connection per server and account, one send at

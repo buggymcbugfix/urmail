@@ -21,12 +21,14 @@ table job : { Id : int, Server : string, Tls : string, Ca : string, User : strin
               Ffi : bool, Lane : int, Status : option string }
   PRIMARY KEY Id
 
+(* The parts of s between the separators. *)
+fun split (sep : char) (s : string) : list string =
+    case String.split s sep of
+        None => s :: []
+      | Some (a, rest) => a :: split sep rest
+
 (* A comma-separated list; an empty field means none. *)
-fun addrs (s : string) : list string =
-    if s = "" then []
-    else case String.split s #"," of
-             None => s :: []
-           | Some (a, rest) => a :: addrs rest
+fun addrs (s : string) : list string = if s = "" then [] else split #"," s
 
 fun opt (s : string) : option string = if s = "" then None else Some s
 
@@ -41,10 +43,7 @@ fun opt (s : string) : option string = if s = "" then None else Some s
      big|NAME|TYPE|SIZE                 an attachment, a Blob of SIZE bytes
                                         of filler, for the cases about big
                                         messages *)
-fun fields (s : string) : list string =
-    case String.split s #"|" of
-        None => s :: []
-      | Some (a, rest) => a :: fields rest
+val pieces = split #"|"
 
 datatype spec = Attachment of Urmail.attachment | Image of url * Urmail.attachment
 
@@ -63,7 +62,7 @@ fun filler (n : int) : string =
         end
 
 fun spec (s : string) : spec =
-    case fields s of
+    case pieces s of
         "blob" :: name :: typ :: data :: [] =>
         Attachment (Urmail.Blob {Name = name, MimeType = typ, Data = textBlob data})
       | "file" :: name :: path :: [] =>
