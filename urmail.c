@@ -1297,6 +1297,25 @@ static int is_atom(const char *w, size_t n) {
   return 1;
 }
 
+static int is_not_atom(const char *w, size_t n) {
+  return !is_atom(w, n);
+}
+
+// Whether `test` holds for some word of s[0..n), the words being what the
+// blanks separate.
+static int some_word(const char *s, size_t n, int (*test)(const char *, size_t)) {
+  size_t i = 0, w;
+
+  while (i < n) {
+    while (i < n && is_blank(s[i]))
+      ++i;
+    for (w = i; i < n && !is_blank(s[i]); ++i);
+    if (i > w && test(s + w, i - w))
+      return 1;
+  }
+  return 0;
+}
+
 // Which words header_words encodes.
 enum { ENCODE_MUST, ENCODE_MUST_OR_NOT_ATOM };
 
@@ -1422,12 +1441,14 @@ static int is_quoted_string(const char *s, size_t n) {
 // unquoted first, so that its quotes do not become part of the name. Then,
 // when no word must be encoded: the words as they are if they are atoms,
 // else the whole in one quoted-string, folded at its blanks, which RFC
-// 5322 allows (section 3.2.4).  When some word must be encoded: the words
-// that are not atoms too, and the atoms as they are.
+// 5322 allows (section 3.2.4). When some word must be encoded: the words
+// that are not atoms too, and the atoms as they are. A word of the quoted
+// string counts as it is written, with its quotes and backslashes: if it is
+// too long for a line, the name is encoded instead, from the text without
+// them.
 static void header_name(header_out *h, const char *name) {
   size_t n = strlen(name), i, len = 0;
   char *text = uw_malloc(h->ctx, n + 1);
-  int must = 0, atoms = 1;
   buf quoted = {NULL, 0, 0};
 
   if (is_quoted_string(name, n)) {
@@ -1442,23 +1463,16 @@ static void header_name(header_out *h, const char *name) {
   }
   text[len] = 0;
 
-  for (i = 0; i < len; ) {
-    size_t w;
-    while (i < len && is_blank(text[i]))
-      ++i;
-    for (w = i; i < len && !is_blank(text[i]); ++i);
-    if (i > w) {
-      must = must || must_encode(text + w, i - w);
-      atoms = atoms && is_atom(text + w, i - w);
-    }
-  }
-  if (must || atoms) {
+  if (some_word(text, len, must_encode) || !some_word(text, len, is_not_atom)) {
     header_words(h, text, ENCODE_MUST_OR_NOT_ATOM, 1);
     return;
   }
   // A quoted-string; its blanks are where it folds.
   buf_quoted(h->ctx, &quoted, text, 0);
-  header_words(h, uw_strdup(h->ctx, quoted.s), ENCODE_MUST, 0);
+  if (some_word(quoted.s, quoted.len, must_encode))
+    header_words(h, text, ENCODE_MUST_OR_NOT_ATOM, 1);
+  else
+    header_words(h, uw_strdup(h->ctx, quoted.s), ENCODE_MUST, 0);
   free(quoted.s);
 }
 
