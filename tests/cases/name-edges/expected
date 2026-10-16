@@ -23,7 +23,7 @@ MESSAGE:
 | MIME-Version: 1.0
 | Date: <date>
 | Message-ID: <generated@example.com>
-| From:  <alice@example.com>
+| From: alice@example.com
 | Subject: Hello
 | To: Jane	Doe <jane@example.net>
 | Cc: "\\"a\\\\\\"" <ann@example.org>

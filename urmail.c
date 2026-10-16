@@ -1445,8 +1445,9 @@ static int is_quoted_string(const char *s, size_t n) {
 // that are not atoms too, and the atoms as they are. A word of the quoted
 // string counts as it is written, with its quotes and backslashes: if it is
 // too long for a line, the name is encoded instead, from the text without
-// them.
-static void header_name(header_out *h, const char *name) {
+// them. A name with no word, empty or only blanks, is no name: nothing is
+// written, and the result is 0.
+static int header_name(header_out *h, const char *name) {
   size_t n = strlen(name), i, len = 0;
   char *text = uw_malloc(h->ctx, n + 1);
   buf quoted = {NULL, 0, 0};
@@ -1463,9 +1464,12 @@ static void header_name(header_out *h, const char *name) {
   }
   text[len] = 0;
 
+  for (i = 0; i < len && is_blank(text[i]); ++i);
+  if (i == len)
+    return 0;
   if (some_word(text, len, must_encode) || !some_word(text, len, is_not_atom)) {
     header_words(h, text, ENCODE_MUST_OR_NOT_ATOM, 1);
-    return;
+    return 1;
   }
   // A quoted-string; its blanks are where it folds.
   buf_quoted(h->ctx, &quoted, text, 0);
@@ -1474,14 +1478,14 @@ static void header_name(header_out *h, const char *name) {
   else
     header_words(h, uw_strdup(h->ctx, quoted.s), ENCODE_MUST, 0);
   free(quoted.s);
+  return 1;
 }
 
 // One address: the addr-spec alone, or the name as a phrase and the
 // addr-spec in brackets.
 static void header_address(header_out *h, uw_UrmailFfi_emailAddress a) {
-  if (a->name) {
+  if (a->name && header_name(h, a->name)) {
     char *bracketed = uw_Basis_mstrcat(h->ctx, "<", a->addr, ">", NULL);
-    header_name(h, a->name);
     header_put(h, " ", 1, bracketed, strlen(bracketed));
   } else
     header_put(h, " ", 1, a->addr, strlen(a->addr));
