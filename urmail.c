@@ -1505,6 +1505,10 @@ static void header_address_list(header_out *h, struct list *l) {
   }
 }
 
+// The room for a date as date_header writes it, with the year as long as an
+// int prints.
+#define DATE_ROOM (sizeof "Thu, 01 Jan 1970 00:00:00 +0000" + sizeof "-2147483648" - sizeof "1970")
+
 // The current time as an RFC 5322 date, in UTC.  Not strftime, whose names
 // follow the locale.
 static void date_header(char *out, size_t n) {
@@ -1650,7 +1654,7 @@ static void buf_body(uw_context ctx, buf *b, uw_Basis_string body, uw_Basis_stri
 // multipart/related of the body and those; with attachments, a
 // multipart/mixed of all that and those.
 static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
-  char date[sizeof "Thu, 01 Jan 1970 00:00:00 +0000" + 8];  // room for a long year
+  char date[DATE_ROOM];
   char message_id[sizeof "<@>" + MESSAGE_ID_UNIQUE + MAX_ADDR_SPEC];
   void **images, **attached;
   size_t n_images, n_attached, i;
@@ -1946,17 +1950,20 @@ typedef enum { SENT, REFUSED, DEFERRED, MAYBE_SENT, MISCONFIGURED } outcome_kind
 
 // A reply of the server's (RFC 5321, section 4.2): its code, its enhanced
 // status code (RFC 3463), its text, and the command it answered.
+#define ENHANCED_CODE_MAX 16  // "5.7.0", "4.2.2": a class and two numbers of up to three digits
+#define REPLY_TEXT_MAX 1024
+#define DETAIL_MAX 1024
 typedef struct {
   int code;           // 0: no reply
-  char enhanced[16];  // "" when there is none
-  char text[1024];    // after the codes, the lines joined by blanks, cut to fit
+  char enhanced[ENHANCED_CODE_MAX];  // "" when there is none
+  char text[REPLY_TEXT_MAX];  // after the codes, the lines joined by blanks, cut to fit
   char command[SMTP_LINE];  // as sent, credentials left out, or "greeting" or "end of DATA"
 } reply;
 
 typedef struct {
   outcome_kind kind;
   reply reply;        // the reply that decided the kind, if one did
-  char detail[1024];  // what else is known, or what libcurl said
+  char detail[DETAIL_MAX];  // what else is known, or what libcurl said
 } outcome;
 
 // Debug tracing, on stderr, when URMAIL_DEBUG is set to anything but "" or
@@ -2313,11 +2320,14 @@ static int str_eq(const char *a, const char *b) {
 
 // Milliseconds of a clock that only moves forward, whatever is done to the
 // time of day.
+#define MS_PER_S 1000LL
+#define NS_PER_MS 1000000LL
+
 static long long now_ms(void) {
   struct timespec ts;
 
   clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  return (long long)ts.tv_sec * MS_PER_S + ts.tv_nsec / NS_PER_MS;
 }
 
 // Overwrite a secret before its memory is given back.  Through a volatile
@@ -2376,7 +2386,7 @@ static void free_unused(void) {
 // caller to clean up once conns_lock is released, since that sends QUIT and
 // waits for the reply; their number is returned.
 static size_t close_idle(smtp_conn *next, CURL **closing) {
-  long long now = now_ms(), limit = timeout_seconds() * 1000LL;
+  long long now = now_ms(), limit = timeout_seconds() * MS_PER_S;
   smtp_conn *c, **idle;
   size_t n = 0, n_idle = 0, n_closing = 0, i, oldest;
   int open = next->open ? 0 : 1;
