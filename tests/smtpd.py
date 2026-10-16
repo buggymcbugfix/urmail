@@ -62,6 +62,9 @@ The modes:
                       and an enhanced status code, as large providers send
     drop-during-data  the connection is closed after the first 64 KiB of the
                       message, while the client is still sending it
+    size-limit        SIZE 1000 is offered (RFC 1870): a MAIL FROM that
+                      declares more, and a message longer, are refused with
+                      552 5.3.4
 
 STARTTLS is offered when --cert and --key are given.  AUTH PLAIN is
 offered unless the mode says otherwise; anything else is refused.
@@ -70,6 +73,7 @@ offered unless the mode says otherwise; anything else is refused.
 import argparse
 import base64
 import os
+import re
 import signal
 import socket
 import ssl
@@ -83,7 +87,11 @@ MODES = ("accept", "close-after-one", "reject-rcpt", "defer-rcpt", "reject-data"
          "reject-bad-rcpt", "defer-data", "drop-on-reuse", "implicit-tls",
          "reject-greeting", "defer-auth", "auth-xoauth2", "auth-required",
          "starttls-drop", "reject-mail", "reject-mail-size", "rcpt-needs-login",
-         "reject-rcpt-long", "drop-during-data")
+         "reject-rcpt-long", "drop-during-data", "size-limit")
+
+# The SIZE that size-limit offers.
+SIZE_LIMIT = 1000
+TOO_BIG = "552 5.3.4 message size exceeds fixed maximum message size"
 
 # How much of the message drop-during-data reads before it closes the
 # connection.
@@ -172,6 +180,8 @@ class Session:
                 and self.mode != "no-starttls":
             exts.append("250-STARTTLS")
         exts.append("250-8BITMIME")
+        if self.mode == "size-limit":
+            exts.append("250-SIZE %d" % SIZE_LIMIT)
         exts.append("250 AUTH XOAUTH2" if self.mode == "auth-xoauth2" else "250 AUTH PLAIN")
         return "\n".join(exts)
 
@@ -249,10 +259,12 @@ class Session:
                 if self.mode == "drop-on-reuse" and self.messages >= 1:
                     self.log("(server closed the connection)")
                     return
+                declared = re.search(r" SIZE=([0-9]+)", cmd, re.I)
                 self.reply("530 5.7.0 authentication required" if self.mode == "auth-required"
                            else "550 5.7.1 sender address not owned by user" if self.mode == "reject-mail"
-                           else "552 5.3.4 message size exceeds fixed maximum message size"
-                           if self.mode == "reject-mail-size"
+                           else TOO_BIG if self.mode == "reject-mail-size"
+                           else TOO_BIG if self.mode == "size-limit" and declared
+                                           and int(declared.group(1)) > SIZE_LIMIT
                            else "250 ok")
             elif verb == "RCPT":
                 if self.mode == "reject-rcpt":
@@ -293,6 +305,8 @@ class Session:
                     return
                 if self.mode == "reject-data":
                     self.reply("554 rejected")
+                elif self.mode == "size-limit" and len(body) > SIZE_LIMIT:
+                    self.reply(TOO_BIG)
                 elif self.mode == "defer-data":
                     self.reply("452 try again later")
                 else:

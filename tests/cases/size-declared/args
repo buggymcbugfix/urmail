@@ -1,0 +1,4 @@
+# A server that offers SIZE 1000 (RFC 1870), and a message of 2 KB.
+mode=size-limit
+tls=none
+form=(From=alice@example.com To=bob@example.net Subject=Hello Body="$(printf 'x%.0s' $(seq 2000))" User=alice Password=secret)

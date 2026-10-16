@@ -17,9 +17,12 @@
 #               img srcs of the HTML version, see tests/app/test.ur),
 #               sends=N (the request is made N times; the server then
 #               serves up to N sessions), pause=SECONDS (slept between the
-#               requests), url=smtp|bare|smtps|http (how the
-#               server is named: smtp://host:port, host:port alone,
-#               smtps://host:port, or an http:// URL, which must be refused),
+#               requests), url=smtp|bare|smtps|http|smtp-path|smtp-userinfo
+#               (how the server is named: smtp://host:port, host:port alone,
+#               smtps://host:port, an http:// URL, which must be refused,
+#               smtp://host:port/mail.example.com, whose path libcurl sends
+#               as the EHLO name, or smtp://mallory:stolen@host:port, with
+#               credentials in it),
 #               app_env=(NAME=VALUE ...) (added to the application's
 #               environment), logfilter=REGEX (only the lines of the
 #               application's log that match, grep -E, are transcribed),
@@ -210,6 +213,7 @@ normalize() {
       -e 's/^| Date: .*/| Date: <date>/' \
       -e 's/^| Message-ID: <[0-9a-f]\{24\}@/| Message-ID: <generated@/' \
       -e 's/127\.0\.0\.1:[0-9]\{1,5\}/127.0.0.1:<port>/g' \
+      -e 's/ SIZE=[0-9]*$/ SIZE=<size>/' \
       "$1"
 }
 
@@ -308,7 +312,7 @@ run_case() {
     *) cannot_run "unknown tls setting $tls"; return ;;
   esac
   case $url in
-    smtp|smtps|bare|http) ;;
+    smtp|smtps|bare|http|smtp-path|smtp-userinfo) ;;
     *) cannot_run "unknown url form $url"; return ;;
   esac
   case $api in
@@ -381,6 +385,8 @@ run_case() {
     smtps) server="smtps://127.0.0.1:$smtp_port" ;;
     bare) server="127.0.0.1:$smtp_port" ;;
     http) server="http://127.0.0.1:$smtp_port" ;;
+    smtp-path) server="smtp://127.0.0.1:$smtp_port/mail.example.com" ;;
+    smtp-userinfo) server="smtp://mallory:stolen@127.0.0.1:$smtp_port" ;;
   esac
   curl_args=(-s -o "$work/body" -w '%{http_code}' --max-time "$request_limit"
              --data-urlencode "Server=$server"

@@ -1,0 +1,6 @@
+# Text that is not UTF-8 (ISO 8859-1 here), in each place that goes out
+# labelled UTF-8: the subject, a display name, the text, the HTML version
+# and an attachment's name.
+api=check
+form=(From=$'J\xfcrgen <j@example.com>' To=bob@example.net Subject=$'Gr\xfc\xdfe' Body=$'Gr\xfc\xdfe'
+      Html=$'Gr\xfc\xdfe' Attach1=$'blob|Gr\xfc\xdfe.txt|text/plain|x')
