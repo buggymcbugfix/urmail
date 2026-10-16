@@ -1,9 +1,8 @@
-# A subject of 997 letters and one blank, 998 bytes, the most allowed.  The
-# value does not fit after "Subject:", so it folds, and the line after the
-# fold is the 997 letters with the blank after them, 999 bytes: one more
-# than RFC 5322 allows (section 2.1.1), and with the line break, over the
-# 1000 bytes of a line in SMTP (RFC 5321, section 4.5.3.1.6).  The expected
-# file records what the library writes today, not what it should write.
+# A subject of 997 letters and one blank, 998 bytes, the most allowed. The
+# letters fill the line after the fold at the colon, 998 bytes with the
+# blank in front, so there is no room for the blank after them, and a line
+# of only blanks is not allowed. The word is encoded then, and the blank
+# comes after it.
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret

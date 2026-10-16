@@ -1072,7 +1072,30 @@ static void buf_base64(uw_context ctx, buf *b, const unsigned char *s, size_t n)
 /* ---- Header values: folded at blanks, so that a line keeps to 78
    characters where the text allows and to 998 always (RFC 5322, sections
    2.1.1 and 3.2.2), with RFC 2047 encoded words for the words that need
-   them only, in Q encoding, which leaves ASCII readable. ---- */
+   them only, in Q encoding, which leaves ASCII readable.
+
+   A reader gives back the blanks of a value if they are written by these
+   rules, which are the only place that says how a run of blanks is
+   written, by what is on each side of it:
+
+     plain  | plain    as they are; a line break may come before them, since
+                       a reader removes the break alone (section 3.2.2)
+     encoded| encoded  inside the encoded words, as '_': a reader drops the
+                       blanks between two encoded words (RFC 2047, 6.2)
+     plain  | encoded  as they are, a reader keeps them
+     plain  | end      as they are if they fit on the line; if not, the first
+                       as it is and the rest as encoded words
+     encoded| end      as they are if they fit; if not, all inside encoded
+                       words, since a blank kept between two encoded words
+                       is lost
+     start  | any      the first is the one after the colon, and is not the
+                       value's; a line break before the first token leaves the
+                       value's blanks where they are
+
+   A blank cannot be written at the end of a line that is full, and a line
+   that is only blanks is not allowed, so the word before blanks that end a
+   value is encoded too if it leaves no room for one.  header_place says
+   where a token lands, for header_put and for that question alike. ---- */
 
 // The longest line a message should have, without its CRLF.
 #define GOOD_LINE 78
@@ -1090,6 +1113,7 @@ typedef struct {
   size_t col;     // the length of the current line
   int has_token;  // whether the current line has a token, after which it may be folded
   int fold_next;  // the next token goes on a new line
+  int last_encoded;  // whether the last token written is an encoded word
 } header_out;
 
 static void header_begin(header_out *h, uw_context ctx, buf *b, const char *name) {
@@ -1100,6 +1124,7 @@ static void header_begin(header_out *h, uw_context ctx, buf *b, const char *name
   h->col = strlen(name) + 1;
   h->has_token = 0;
   h->fold_next = 0;
+  h->last_encoded = 0;
 }
 
 static void header_end(header_out *h) {
@@ -1112,30 +1137,47 @@ static void header_append(header_out *h, const char *s) {
   h->col += strlen(s);
 }
 
-// tok[0..n) after the blanks ws[0..ws_n), which must not be empty: on the
-// current line if it fits within 78 characters, or within 998 while the
-// line has no token yet; else on a new line, which starts with the blanks.
-// That is folding (RFC 5322, section 3.2.2), which a reader undoes by
-// removing the line break alone, so the blanks stay as they were.  Before
-// the first token, the first blank is the one after the colon, which is
-// not the value's: a fold there leaves it out, so that the new line holds
-// the value's own blanks and the token, at most a value's worth.
-static void header_put(header_out *h, const char *ws, size_t ws_n, const char *tok, size_t n) {
+// Where a token of n bytes lands after ws_n blanks, which must not be
+// empty: on the current line if it fits within 78 characters, or within 998
+// while the line has no token yet; else on a new line, which starts with
+// the blanks. That is folding (RFC 5322, section 3.2.2), which a reader
+// undoes by removing the line break alone, so the blanks stay as they
+// were.  Before the first token, the first blank is the one after the
+// colon, which is not the value's: a fold there leaves it out, so that the
+// new line holds the value's own blanks and the token.
+typedef struct {
+  int new_line;    // whether it goes on a new line
+  size_t skipped;  // how many of the blanks are left out there
+  size_t end;      // the length of its line when it is on it
+} placement;
+
+static placement header_place(const header_out *h, size_t ws_n, size_t n) {
+  placement p = {0, 0, h->col + ws_n + n};
   size_t limit = h->has_token ? GOOD_LINE : MAX_LINE;
 
-  if (h->fold_next || h->col + ws_n + n > limit) {
+  if (h->fold_next || p.end > limit) {
+    p.new_line = 1;
+    p.skipped = !h->has_token && ws_n > 1;
+    p.end = ws_n - p.skipped + n;
+  }
+  return p;
+}
+
+// tok[0..n) after the blanks ws[0..ws_n), where header_place says.
+static void header_put(header_out *h, const char *ws, size_t ws_n, const char *tok, size_t n) {
+  placement p = header_place(h, ws_n, n);
+
+  if (p.new_line) {
     buf_str(h->ctx, h->b, "\r\n");
-    h->col = 0;
     h->fold_next = 0;
-    if (!h->has_token && ws_n > 1) {
-      ++ws;
-      --ws_n;
-    }
+    ws += p.skipped;
+    ws_n -= p.skipped;
   }
   buf_append(h->ctx, h->b, ws, ws_n);
   buf_append(h->ctx, h->b, tok, n);
-  h->col += ws_n + n;
+  h->col = p.end;
   h->has_token = 1;
+  h->last_encoded = 0;
 }
 
 static int is_blank(char c) {
@@ -1222,6 +1264,7 @@ static void header_encoded(header_out *h, const char *ws, size_t ws_n, const uns
     // It fits where the room was worked out, so header_put folds only if
     // told to.
     header_put(h, ws, ws_n, word, t);
+    h->last_encoded = 1;
     ws = " ";
     ws_n = 1;
   }
@@ -1259,18 +1302,29 @@ static int encoded(const char *w, size_t n, int which) {
   return must_encode(w, n) || (which == ENCODE_MUST_OR_NOT_ATOM && !is_atom(w, n));
 }
 
-// Blanks that end a value, ws[0..ws_n): as they are when they fit on the
-// line; else the first as it is and the rest as encoded words of '_', the
-// Q encoding of a space, which a reader turns back into the blanks, and
-// keeps the first, since it stands between text and an encoded word.  A
-// fold will not do here: a line break among the blanks that end a value
-// is the obsolete syntax (RFC 5322, section 4.1).
+// Blanks that end a value, ws[0..ws_n), by the rules at the head of this
+// section. A fold will not do here: a line break among the blanks that end
+// a value is the obsolete syntax (RFC 5322, section 4.1). One blank may
+// stand past the 78th column, as long as it is on the line.
 static void header_trailing_blanks(header_out *h, const char *ws, size_t ws_n, int in_name) {
-  if (ws_n <= 1 || h->col + ws_n <= GOOD_LINE) {
+  if (h->col + ws_n <= (ws_n <= 1 ? MAX_LINE : GOOD_LINE)) {
     buf_append(h->ctx, h->b, ws, ws_n);
     h->col += ws_n;
-  } else
+  } else if (h->last_encoded)
+    header_encoded(h, " ", 1, (const unsigned char *)ws, ws_n, in_name);
+  else  // more than one: header_leaves_no_room made sure that one fits
     header_encoded(h, ws, 1, (const unsigned char *)ws + 1, ws_n - 1, in_name);
+}
+
+// Whether the last word of a value, of n bytes after ws_n blanks, leaves no
+// room for a blank after it. If blanks follow it, the word has to be
+// encoded then.  The first word of a header is placed after what is
+// written; any other that does not fit its line is on a line of its own, so
+// the sizes are enough.
+static int header_leaves_no_room(const header_out *h, int first, size_t ws_n, size_t n) {
+  if (first && !h->has_token)
+    return header_place(h, ws_n, n).end + 1 > MAX_LINE;
+  return ws_n + n + 1 > MAX_LINE;
 }
 
 // The words of s with the blanks between them as they are, the first after
@@ -1279,7 +1333,7 @@ static void header_trailing_blanks(header_out *h, const char *ws, size_t ws_n, i
 // blanks between two encoded words are dropped (RFC 2047, section 6.2).
 // The rest go as they are.
 static void header_words(header_out *h, const char *s, int which, int in_name) {
-  size_t n = strlen(s), i = 0, ws_n;
+  size_t n = strlen(s), i = 0, ws_n, tail, last, forced = (size_t)-1;
   const char *ws;
   char *first;
 
@@ -1295,13 +1349,25 @@ static void header_words(header_out *h, const char *s, int which, int in_name) {
     header_trailing_blanks(h, s, n, in_name);
     return;
   }
+  // The last word, if blanks follow it: encoded too if it leaves no room
+  // for one (header_leaves_no_room).
+  for (tail = n; is_blank(s[tail-1]); --tail);
+  if (tail < n) {
+    size_t blanks;
+
+    for (last = tail; last > i && !is_blank(s[last-1]); --last);
+    for (blanks = last; blanks > i && is_blank(s[blanks-1]); --blanks);
+    if (!encoded(s + last, tail - last, which)
+        && header_leaves_no_room(h, last == i, last == i ? ws_n : last - blanks, tail - last))
+      forced = last;
+  }
   while (i < n) {
     size_t w = i, end;
 
     while (i < n && !is_blank(s[i]))
       ++i;
     end = i;
-    if (encoded(s + w, end - w, which)) {
+    if (encoded(s + w, end - w, which) || w == forced) {
       // The words that follow and are encoded too.
       for (;;) {
         size_t next = end, next_end;
@@ -1310,7 +1376,7 @@ static void header_words(header_out *h, const char *s, int which, int in_name) {
         if (next == n)
           break;
         for (next_end = next; next_end < n && !is_blank(s[next_end]); ++next_end);
-        if (!encoded(s + next, next_end - next, which))
+        if (!encoded(s + next, next_end - next, which) && next != forced)
           break;
         end = next_end;
       }

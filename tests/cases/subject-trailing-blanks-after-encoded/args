@@ -1,11 +1,8 @@
-# A subject of two letters that are not ASCII and 46 blanks.  The blanks do
-# not fit on the line.  The first is written as a plain blank after the
-# encoded letters, the other 45 as encoded words of '_', 32 on the first
-# line and 13 on the second.  A reader drops a plain blank between two
-# encoded words (RFC 2047, 6.2), so it decodes 45 blanks where the subject
-# has 46.  (With 45 blanks they all fit on the first line, and none is
-# lost.)  The expected file records what the library writes today, not
-# what it should write.
+# A subject of two letters that are not ASCII and 46 blanks. The blanks do
+# not fit on the line, so they are all written inside encoded words of '_',
+# 32 on the first line and 14 on the second. A blank kept in plain between
+# two encoded words would be dropped by a reader (RFC 2047, 6.2). (With 45
+# blanks they all fit on the first line, and none is lost.)
 mode=accept
 tls=none
 form=(From=alice@example.com To=bob@example.net Body=$'Hi\n' User=alice Password=secret

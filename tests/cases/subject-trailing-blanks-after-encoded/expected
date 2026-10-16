@@ -23,7 +23,7 @@ MESSAGE:
 | Message-ID: <generated@example.com>
 | From: alice@example.com
 | Subject: =?UTF-8?Q?=C3=A9=C3=A9?= =?UTF-8?Q?________________________________?=
-|  =?UTF-8?Q?_____________?=
+|  =?UTF-8?Q?______________?=
 | To: bob@example.net
 | Content-Type: text/plain; charset=utf-8
 | Content-Transfer-Encoding: quoted-printable
