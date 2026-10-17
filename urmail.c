@@ -2278,6 +2278,16 @@ static void judge_error(CURLcode res, const char *error, int all_sent, outcome *
   case CURLE_USE_SSL_FAILED:
     decided(o, MISCONFIGURED, "the server does not offer STARTTLS", why);
     break;
+  case CURLE_COULDNT_RESOLVE_PROXY:
+  case CURLE_COULDNT_RESOLVE_HOST:
+  case CURLE_COULDNT_CONNECT:
+    // Nothing was sent. libcurl's own text says which host did not resolve,
+    // or which address could not be connected to and whether a proxy of the
+    // environment stood in the way, which the code's text does not. The
+    // text of a failure after the connection was made is left out: it names
+    // the errno of the moment, which a peer's reset can change.
+    decided(o, DEFERRED, *error ? error : why, NULL);
+    break;
   case CURLE_LOGIN_DENIED:
     decided(o, MISCONFIGURED, "the server offers no login that libcurl can make with a password", why);
     break;

@@ -1,5 +1,5 @@
 --- status
-Deferred: Could not connect to server
+Deferred: Failed to connect to 127.0.0.1:<port> after <ms> ms: Could not connect to server
 --- server
 (no server)
 --- application log

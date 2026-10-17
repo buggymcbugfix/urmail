@@ -1,5 +1,5 @@
 --- status
-Deferred: Could not resolve hostname
+Deferred: Could not resolve host: nonexistent.invalid
 --- server
 (no server)
 --- application log

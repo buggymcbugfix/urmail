@@ -1,6 +1,7 @@
 # libcurl's proxy variables are honoured as they are: with all_proxy
 # naming a proxy where nothing listens, the connection goes to the proxy
-# and not to the server, which sees no client.  The send is deferred.
+# and not to the server, which sees no client. The send is deferred, and
+# the status says that the proxy stood in the way.
 # no_proxy is emptied so that the test does not depend on the one of the
 # environment it runs in.
 mode=accept
