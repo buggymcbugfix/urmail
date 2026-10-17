@@ -1137,6 +1137,16 @@ static void header_end(header_out *h) {
   buf_str(h->ctx, h->b, "\r\n");
 }
 
+// The header field `name` with a value that `write(&h, value)` puts on its
+// line, and the end of the line.
+#define HEADER_FIELD(ctx, b, name, write, value) \
+  do { \
+    header_out h_; \
+    header_begin(&h_, (ctx), (b), (name)); \
+    write(&h_, (value)); \
+    header_end(&h_); \
+  } while (0)
+
 // Text that goes right after the last token, without blanks: a comma.
 static void header_append(header_out *h, const char *s) {
   buf_str(h->ctx, h->b, s);
@@ -1664,7 +1674,6 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   char message_id[sizeof "<@>" + MESSAGE_ID_UNIQUE + MAX_ADDR_SPEC];
   void **images, **attached;
   size_t n_images, n_attached, i;
-  header_out h;
 
   date_header(date, sizeof date);
   buf_str(ctx, b, "MIME-Version: 1.0\r\n");
@@ -1674,23 +1683,13 @@ static void assemble(uw_context ctx, buf *b, uw_UrmailFfi_message m) {
   buf_str(ctx, b, MESSAGE_ID_HEADER);
   buf_str(ctx, b, m->message_id ? m->message_id : message_id);
   buf_str(ctx, b, "\r\n");
-  header_begin(&h, ctx, b, "From");
-  header_address(&h, m->from);
-  header_end(&h);
-  header_begin(&h, ctx, b, "Subject");
-  header_text(&h, m->subject);
-  header_end(&h);
+  HEADER_FIELD(ctx, b, "From", header_address, m->from);
+  HEADER_FIELD(ctx, b, "Subject", header_text, m->subject);
   for (i = TO_FIELD; i <= CC_FIELD; ++i)  // Bcc is the envelope's only
-    if (m->recipients[i]) {
-      header_begin(&h, ctx, b, recipient_field[i]);
-      header_address_list(&h, m->recipients[i]);
-      header_end(&h);
-    }
-  if (m->user_agent) {
-    header_begin(&h, ctx, b, "User-Agent");
-    header_text(&h, m->user_agent);
-    header_end(&h);
-  }
+    if (m->recipients[i])
+      HEADER_FIELD(ctx, b, recipient_field[i], header_address_list, m->recipients[i]);
+  if (m->user_agent)
+    HEADER_FIELD(ctx, b, "User-Agent", header_text, m->user_agent);
 
   n_images = in_order(ctx, m->images, &images);
   n_attached = in_order(ctx, m->attachments, &attached);
