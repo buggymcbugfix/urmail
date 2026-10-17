@@ -246,7 +246,8 @@ done
 # MESSAGE: to the first empty line; the declared size with its MAIL FROM;
 # the fake server's port after smtp:// or smtps://, in the library's log
 # and in statuses, and in libcurl's trace lines; the milliseconds libcurl
-# gives for a timeout.
+# gives for a timeout; the port and the milliseconds in libcurl's text for
+# a connection that failed.
 normalize() {
   awk '
     /^C: EHLO / { $0 = "C: EHLO <host>" }
@@ -258,6 +259,7 @@ normalize() {
     { gsub(/smtp:\/\/127\.0\.0\.1:[0-9]+/, "smtp://127.0.0.1:<port>"); gsub(/smtps:\/\/127\.0\.0\.1:[0-9]+/, "smtps://127.0.0.1:<port>") }
     /^\* / { gsub(/127\.0\.0\.1:[0-9]+/, "127.0.0.1:<port>"); gsub(/ port [0-9]+/, " port <port>") }
     /^\* Operation timed out after [0-9]+ milliseconds/ { sub(/after [0-9]+ milliseconds/, "after <ms> milliseconds") }
+    /Failed to connect to 127\.0\.0\.1:[0-9]+ / { sub(/127\.0\.0\.1:[0-9]+/, "127.0.0.1:<port>"); sub(/ after [0-9]+ ms/, " after <ms> ms") }
     { print }
   ' "$1"
 }
