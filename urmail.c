@@ -1731,9 +1731,10 @@ static int has_scheme(const char *s) {
   return *s == ':';
 }
 
-// Whether s[0..n) is `lit`, ignoring case.
+// Whether s[0..n) is `lit`, ignoring case. s need not end in a NUL:
+// starts_with_nocase reads no more than strlen(lit) == n bytes of it.
 static int name_is(const char *s, size_t n, const char *lit) {
-  return strlen(lit) == n && !strncasecmp(s, lit, n);
+  return strlen(lit) == n && starts_with_nocase(s, lit);
 }
 
 // An attribute value s[0..n) as the runtime writes it, unescaped.
