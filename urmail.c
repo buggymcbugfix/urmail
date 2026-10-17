@@ -719,24 +719,26 @@ static struct part *served_part(uw_context ctx, uw_UrmailFfi_message m, const ch
   return ok ? new_part(ctx, name, f->type, f->data) : NULL;
 }
 
-uw_UrmailFfi_message uw_UrmailFfi_attachBlob(uw_context ctx, uw_Basis_string name, uw_Basis_string type,
-                                             uw_Basis_blob data, uw_UrmailFfi_message m) {
-  uw_UrmailFfi_message m2 = copy(ctx, m);
-  struct part *p = blob_part(ctx, m2, "Attachment", name, name, type, data);
-
+// m2, a copy of a message, with the part p added to its attachments, unless
+// p is NULL: a part that had problems.
+static uw_UrmailFfi_message with_attachment(uw_context ctx, uw_UrmailFfi_message m2, struct part *p) {
   if (p)
     m2->attachments = cons(ctx, p, m2->attachments);
   return m2;
 }
 
+uw_UrmailFfi_message uw_UrmailFfi_attachBlob(uw_context ctx, uw_Basis_string name, uw_Basis_string type,
+                                             uw_Basis_blob data, uw_UrmailFfi_message m) {
+  uw_UrmailFfi_message m2 = copy(ctx, m);
+
+  return with_attachment(ctx, m2, blob_part(ctx, m2, "Attachment", name, name, type, data));
+}
+
 uw_UrmailFfi_message uw_UrmailFfi_attachServedFile(uw_context ctx, uw_Basis_string name, uw_Basis_string path,
                                                    uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
-  struct part *p = served_part(ctx, m2, "Attachment", name ? name : path, name, path, 0);
 
-  if (p)
-    m2->attachments = cons(ctx, p, m2->attachments);
-  return m2;
+  return with_attachment(ctx, m2, served_part(ctx, m2, "Attachment", name ? name : path, name, path, 0));
 }
 
 // An entry of Images, kept unless there is one for the url already, which
@@ -756,22 +758,26 @@ static void add_entry(uw_context ctx, uw_UrmailFfi_message m, uw_Basis_string ur
   m->entries = cons(ctx, e, m->entries);
 }
 
+// m2, a copy of a message, with an entry of Images for url made of the part
+// p, and the page's img srcs to be looked up again.
+static uw_UrmailFfi_message with_image(uw_context ctx, uw_UrmailFfi_message m2, uw_Basis_string url, struct part *p) {
+  add_entry(ctx, m2, url, p);
+  forget_lookup(m2);
+  return m2;
+}
+
 uw_UrmailFfi_message uw_UrmailFfi_imageBlob(uw_context ctx, uw_Basis_string url, uw_Basis_string name,
                                             uw_Basis_string type, uw_Basis_blob data, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
-  add_entry(ctx, m2, url, blob_part(ctx, m2, "Image", url, name, type, data));
-  forget_lookup(m2);
-  return m2;
+  return with_image(ctx, m2, url, blob_part(ctx, m2, "Image", url, name, type, data));
 }
 
 uw_UrmailFfi_message uw_UrmailFfi_imageServedFile(uw_context ctx, uw_Basis_string url, uw_Basis_string name,
                                                   uw_Basis_string path, uw_UrmailFfi_message m) {
   uw_UrmailFfi_message m2 = copy(ctx, m);
 
-  add_entry(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path, 0));
-  forget_lookup(m2);
-  return m2;
+  return with_image(ctx, m2, url, served_part(ctx, m2, "Image", url, name, path, 0));
 }
 
 static void rewrite_page(uw_context ctx, uw_UrmailFfi_message m);
