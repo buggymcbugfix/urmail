@@ -1,16 +1,17 @@
 # The Ur/Web the standalone build and shell use. A project that packages
 # this library passes its own `urweb` to derivation.nix instead.
 #
-# The library needs the io monad (Basis.io, runTransaction), which is in
-# buggymcbugfix/urweb's main from the commit "io: computations outside any
-# transaction, and periodic tasks in them" on, and Basis.checkServedFile,
-# from "Basis: blessServedFile and checkServedFile, the files of `file`
-# directives" on. The commit below is the one warenwirtschaft's flake
-# pins. It is fetched as GitHub's tarball of it, with the hash of the
-# unpacked tree, which `git archive` of the commit reproduces, so the fetch
-# is checked and can be cached.
-builtins.fetchTarball {
-  # buggymcbugfix/urweb main at fd6793759f07 (2026-09-29)
-  url = "https://github.com/buggymcbugfix/urweb/archive/fd6793759f075d50123dfeb9421fbf188d23710c.tar.gz";
-  sha256 = "0zn5s16fa9sd9d0d7ndkiqcv7jrd0wywnbs3cphg8h6vkpkh46wh";
+# The library needs the io monad (Basis.io, runTransaction), which Ur/Web
+# has from the commit "io: computations outside any transaction, and
+# periodic tasks in them" on, and Basis.checkServedFile, from "Basis:
+# blessServedFile and checkServedFile, the files of `file` directives" on.
+# The commit below is buggymcbugfix/urweb-research's main, which
+# warenwirtschaft builds against. That repository is private, so it is
+# fetched over ssh with the key of whoever builds, as warenwirtschaft's
+# flake fetches it. The rev pins it: the commit's hash fixes the tree, so
+# no other hash is needed.
+builtins.fetchGit {
+  # buggymcbugfix/urweb-research main at 961a7ae15d31 (2026-10-21)
+  url = "ssh://git@github.com/buggymcbugfix/urweb-research.git";
+  rev = "961a7ae15d313e192eecaefc6008791ab5c1c25a";
 }

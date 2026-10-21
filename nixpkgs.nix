@@ -11,9 +11,6 @@ import (builtins.fetchTarball {
 }) {
   overlays = [
     (final: prev: {
-      mlton20210117 = prev.mlton20210117.override {
-        doCheck = !prev.stdenv.hostPlatform.isDarwin;
-      };
       urweb = final.callPackage "${import ./urweb-src.nix}/derivation.nix" { };
     })
   ];
