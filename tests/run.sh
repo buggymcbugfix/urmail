@@ -38,7 +38,7 @@
 #               by whichever of two io tasks takes it first, which run at
 #               the same time; the transcript's first part is the statuses
 #               the tasks recorded, or what Urmail.message said; a task
-#               that dies records none, and the log says why).  The file runs in a shell of its own,
+#               whose run fails records none, and the log says why).  The file runs in a shell of its own,
 #               under set -u; a setting with a value not listed here, or a
 #               variable that is not a setting and whose name does not
 #               start with '_', means the case cannot run.
@@ -477,8 +477,12 @@ run_case() {
   if [ "$api" != check ]; then
     # The task sends within a second of the request; wait for as many
     # statuses as there were requests (a hung server takes the timeout), or
-    # for the task to die, which the runtime logs: a send that refuses its
-    # message ends the task's run before any status is recorded.
+    # for the task's run to fail, which the runtime logs: a send that
+    # refuses its message ends the run before any status is recorded. The
+    # runtime may start the line with what the program was doing ("periodic
+    # task at test.ur:..."), so the match is not anchored. The task runs
+    # again a period later and fails again on the same job, so the wait has
+    # to end at the first such line for the log to hold just that one.
     deadline=$((SECONDS + status_limit))
     while running "$app_pid"; do
       code=$(curl -s -o "$work/status" -w '%{http_code}' --max-time "$request_limit" \
@@ -487,7 +491,7 @@ run_case() {
         failed_with_log "the status request $(answered "$code")"; return
       fi
       n=$(grep -o '<br />' "$work/status" | wc -l)
-      [ "$n" -ge "$sends" ] || grep -q '^Fatal error in io task' "$work/app.log" || [ "$SECONDS" -ge "$deadline" ] && break
+      [ "$n" -ge "$sends" ] || grep -q 'Fatal error in io task' "$work/app.log" || [ "$SECONDS" -ge "$deadline" ] && break
       sleep 0.1
     done
   fi
